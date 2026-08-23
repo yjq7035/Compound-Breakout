@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "w3xtg": {
+      "type": "local",
+      "command": [
+        "C:\\Users\\Administrator\\.workbuddy\\binaries\\node\\versions\\22.22.2\\node.exe",
+        "C:\\Users\\Administrator\\Desktop\\w3xtg-mcp\\server.js"
+      ],
+      "enabled": true,
+      "environment": {
+        "W3XTG_PROJECT": "D:\\Dota\\W3xTg"
+      }
+    }
+  }
+}
