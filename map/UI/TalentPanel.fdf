@@ -1,0 +1,170 @@
+// ============================================================
+// BACKDROP — 天赋面板背景（FDF 定义，自带边框 + 半透明底）
+// 由 GameTalent.lua 通过 Frame:newByTag("BACKDROP", name, container, "TalentPanelBg") 创建
+// ============================================================
+Frame "BACKDROP" "TalentPanelBg"
+{
+    Width 0.625,
+    Height 0.4815,
+
+    BackdropTileBackground,
+    BackdropBackground  "UI\Widgets\ToolTips\Human\human-tooltip-background.blp",
+    BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+    BackdropCornerSize  0.03,
+    BackdropBackgroundSize  0.032,
+    BackdropBackgroundInsets 0.01f 0.01f 0.01f 0.01f,
+    BackdropEdgeFile  "UI\Widgets\EscMenu\Human\human-options-menu-border.blp",
+    BackdropBlendAll,
+}
+
+// 提示框风格背景（供新版天赋界面统一使用：背景 + 细边框一体）
+Frame "BACKDROP" "TalentTooltipBg"
+{
+    Width 0.625,
+    Height 0.4815,
+
+    BackdropTileBackground,
+    BackdropBackground  "UI\Widgets\ToolTips\Human\human-tooltip-background.blp",
+    BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+    BackdropCornerSize  0.012,
+    BackdropBackgroundSize  0.032,
+    BackdropBackgroundInsets 0.004f 0.004f 0.004f 0.004f,
+    BackdropEdgeFile  "UI\Widgets\ToolTips\Human\human-tooltip-border.blp",
+    BackdropBlendAll,
+}
+
+
+// ============================================================
+// 种族主题模板（规格 design/gdd/talent_race_theme.md §2.2 / §4.2 / §4.3 / §三）
+// 原 TalentPanelBg（Human tooltip 样式）保留作兼容别名 / fallback，见上方定义。
+// ============================================================
+
+// Human（人族背景）— 与原 TalentPanelBg 并存；Lua 当前按 minimal-change 走原 TalentPanelBg（第七节），
+// 本模板为规格 §2.2 定义、预留给后续将 Human 也迁移到 tile 样式。
+Frame "BACKDROP" "TalentPanelBgHuman"
+{
+    Width 0.625, Height 0.4815,
+    BackdropTileBackground,
+    BackdropBackground  "UI\Console\Human\HumanUITile01.blp",
+    BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+    BackdropCornerSize  0.012,
+    BackdropBackgroundSize  0.032,
+    BackdropBackgroundInsets 0.004f 0.004f 0.004f 0.004f,
+    BackdropEdgeFile  "UI\Widgets\EscMenu\Human\human-options-menu-border.blp",
+    BackdropBlendAll,
+}
+
+Frame "BACKDROP" "TalentPanelBgOrc"
+{
+    Width 0.625, Height 0.4815,
+    BackdropTileBackground,
+    BackdropBackground  "UI\Console\Orc\OrcUITile01.blp",
+    BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+    BackdropCornerSize  0.012,
+    BackdropBackgroundSize  0.032,
+    BackdropBackgroundInsets 0.004f 0.004f 0.004f 0.004f,
+    BackdropEdgeFile  "UI\Widgets\EscMenu\Orc\orc-options-menu-border.blp",
+    BackdropBlendAll,
+}
+
+Frame "BACKDROP" "TalentPanelBgUndead"
+{
+    Width 0.625, Height 0.4815,
+    BackdropTileBackground,
+    BackdropBackground  "UI\Console\Undead\UndeadUITile01.blp",
+    BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+    BackdropCornerSize  0.012,
+    BackdropBackgroundSize  0.032,
+    BackdropBackgroundInsets 0.004f 0.004f 0.004f 0.004f,
+    BackdropEdgeFile  "UI\Widgets\EscMenu\Undead\undead-options-menu-border.blp",
+    BackdropBlendAll,
+}
+
+Frame "BACKDROP" "TalentPanelBgNightElf"
+{
+    Width 0.625, Height 0.4815,
+    BackdropTileBackground,
+    BackdropBackground  "UI\Console\NightElf\NightElfUITile01.blp",
+    BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+    BackdropCornerSize  0.012,
+    BackdropBackgroundSize  0.032,
+    BackdropBackgroundInsets 0.004f 0.004f 0.004f 0.004f,
+    BackdropEdgeFile  "UI\Widgets\EscMenu\NightElf\nightelf-options-menu-border.blp",
+    BackdropBlendAll,
+}
+
+// ===== 天赋按钮模板：原生菜单按钮款式（抄 EscMenuButtonTemplate 的 5 态结构）=====
+// 来源：游戏内置 UI\FrameDef\UI\EscMenuTemplates.fdf 的 EscMenuButtonTemplate（始终加载）。
+// 用原生命名贴图（EscMenuButtonBackground / EscMenuButtonBorder / EscMenuButtonPushedBackground ...），
+// 配合 DecorateFileNames，游戏按本地玩家种族自动换皮（四族按钮资源齐全，无需手写 4 套）。
+// 创建类型仍为 BUTTON（DzCreateFrameByTagName("BUTTON",...,"TalentBtn")），与 Talent.lua 现有调用一致。
+Frame "BUTTON" "TalentBtn"
+{
+    ControlStyle "AUTOTRACK|HIGHLIGHTONMOUSEOVER",
+    ControlBackdrop "TalentBtn_BD",
+    Frame "BACKDROP" "TalentBtn_BD"
+    {
+        DecorateFileNames,
+        BackdropTileBackground,
+        BackdropBackground "EscMenuButtonBackground",
+        BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+        BackdropCornerSize 0.0125,
+        BackdropBackgroundSize 0.256,
+        BackdropBackgroundInsets 0.005 0.005 0.005 0.005,
+        BackdropEdgeFile "EscMenuButtonBorder",
+    }
+    ControlPushedBackdrop "TalentBtn_PD",
+    Frame "BACKDROP" "TalentBtn_PD"
+    {
+        DecorateFileNames,
+        BackdropTileBackground,
+        BackdropBackground "EscMenuButtonPushedBackground",
+        BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+        BackdropCornerSize 0.0125,
+        BackdropBackgroundSize 0.256,
+        BackdropBackgroundInsets 0.005 0.005 0.005 0.005,
+        BackdropEdgeFile "EscMenuButtonPushedBorder",
+    }
+    ControlDisabledBackdrop "TalentBtn_DD",
+    Frame "BACKDROP" "TalentBtn_DD"
+    {
+        DecorateFileNames,
+        BackdropTileBackground,
+        BackdropBackground "EscMenuButtonDisabledBackground",
+        BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+        BackdropCornerSize 0.0125,
+        BackdropBackgroundSize 0.256,
+        BackdropBackgroundInsets 0.005 0.005 0.005 0.005,
+        BackdropEdgeFile "EscMenuButtonDisabledBorder",
+    }
+    ControlDisabledPushedBackdrop "TalentBtn_DPD",
+    Frame "BACKDROP" "TalentBtn_DPD"
+    {
+        DecorateFileNames,
+        BackdropTileBackground,
+        BackdropBackground "EscMenuButtonDisabledPushedBackground",
+        BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+        BackdropCornerSize 0.0125,
+        BackdropBackgroundSize 0.256,
+        BackdropBackgroundInsets 0.005 0.005 0.005 0.005,
+        BackdropEdgeFile "EscMenuButtonDisabledPushedBorder",
+    }
+    ControlMouseOverHighlight "TalentBtn_HL",
+    Frame "HIGHLIGHT" "TalentBtn_HL"
+    {
+        DecorateFileNames,
+        HighlightType "FILETEXTURE",
+        HighlightAlphaFile "EscMenuButtonMouseOverHighlight",
+        HighlightAlphaMode "ADD",
+    }
+}
+
+// 内容 scrim（规格第三节）：中性深色半透，垫在主背景之上、所有文字/节点之下，保证对比度。
+// Alpha 0.5 为起点（区间 0.45~0.60，TUNE）。
+Frame "BACKDROP" "TalentScrim"
+{
+    Width 1.0, Height 1.0,
+    BackdropBackground "UI\Widgets\ToolTips\Human\human-tooltip-background.blp",
+    BackdropBlendAll,
+    Alpha 0.25,
+}

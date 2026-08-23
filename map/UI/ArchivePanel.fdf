@@ -1,0 +1,93 @@
+// ============================================================
+// ArchivePanel — 平台数据档案独立 FDF 模板（原与天赋共用 TalentPanel.fdf）
+// 模板命名全部带 Archive 前缀，避免与天赋模板冲突或相互影响。
+// ============================================================
+
+// 主面板背景：退回原来的提示框背景 + options-menu-border 风格
+Frame "BACKDROP" "ArchivePanelBg"
+{
+    Width 0.625,
+    Height 0.4815,
+
+    BackdropTileBackground,
+    BackdropBackground  "UI\Widgets\ToolTips\Human\human-tooltip-background.blp",
+    BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+    BackdropCornerSize  0.03,
+    BackdropBackgroundSize  0.032,
+    BackdropBackgroundInsets 0.01f 0.01f 0.01f 0.01f,
+    BackdropEdgeFile  "UI\Widgets\EscMenu\Human\human-options-menu-border.blp",
+    BackdropBlendAll,
+}
+
+// ===== 档案面板按钮模板：原生菜单按钮款式（抄 EscMenuButtonTemplate 的 5 态结构）=====
+// 来源：游戏内置 UI\FrameDef\UI\EscMenuTemplates.fdf 的 EscMenuButtonTemplate（始终加载）。
+// 用原生命名贴图，配合 DecorateFileNames，游戏按本地玩家种族自动换皮。
+Frame "BUTTON" "ArchiveBtn"
+{
+    ControlStyle "AUTOTRACK|HIGHLIGHTONMOUSEOVER",
+    ControlBackdrop "ArchiveBtn_BD",
+    Frame "BACKDROP" "ArchiveBtn_BD"
+    {
+        DecorateFileNames,
+        BackdropTileBackground,
+        BackdropBackground "EscMenuButtonBackground",
+        BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+        BackdropCornerSize 0.0125,
+        BackdropBackgroundSize 0.256,
+        BackdropBackgroundInsets 0.005 0.005 0.005 0.005,
+        BackdropEdgeFile "EscMenuButtonBorder",
+    }
+    ControlPushedBackdrop "ArchiveBtn_PD",
+    Frame "BACKDROP" "ArchiveBtn_PD"
+    {
+        DecorateFileNames,
+        BackdropTileBackground,
+        BackdropBackground "EscMenuButtonPushedBackground",
+        BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+        BackdropCornerSize 0.0125,
+        BackdropBackgroundSize 0.256,
+        BackdropBackgroundInsets 0.005 0.005 0.005 0.005,
+        BackdropEdgeFile "EscMenuButtonPushedBorder",
+    }
+    ControlDisabledBackdrop "ArchiveBtn_DD",
+    Frame "BACKDROP" "ArchiveBtn_DD"
+    {
+        DecorateFileNames,
+        BackdropTileBackground,
+        BackdropBackground "EscMenuButtonDisabledBackground",
+        BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+        BackdropCornerSize 0.0125,
+        BackdropBackgroundSize 0.256,
+        BackdropBackgroundInsets 0.005 0.005 0.005 0.005,
+        BackdropEdgeFile "EscMenuButtonDisabledBorder",
+    }
+    ControlDisabledPushedBackdrop "ArchiveBtn_DPD",
+    Frame "BACKDROP" "ArchiveBtn_DPD"
+    {
+        DecorateFileNames,
+        BackdropTileBackground,
+        BackdropBackground "EscMenuButtonDisabledPushedBackground",
+        BackdropCornerFlags "UL|UR|BL|BR|T|L|B|R",
+        BackdropCornerSize 0.0125,
+        BackdropBackgroundSize 0.256,
+        BackdropBackgroundInsets 0.005 0.005 0.005 0.005,
+        BackdropEdgeFile "EscMenuButtonDisabledPushedBorder",
+    }
+    ControlMouseOverHighlight "ArchiveBtn_HL",
+    Frame "HIGHLIGHT" "ArchiveBtn_HL"
+    {
+        DecorateFileNames,
+        HighlightType "FILETEXTURE",
+        HighlightAlphaFile "EscMenuButtonMouseOverHighlight",
+        HighlightAlphaMode "ADD",
+    }
+}
+
+// 内容 scrim：中性深色半透，垫在主背景之上、所有文字/节点之下，保证对比度。
+Frame "BACKDROP" "ArchiveScrim"
+{
+    Width 1.0, Height 1.0,
+    BackdropBackground "UI\Widgets\ToolTips\Human\human-tooltip-background.blp",
+    BackdropBlendAll,
+    Alpha 0.5,
+}

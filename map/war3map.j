@@ -15,7 +15,7 @@ endglobals
 
 //library YDTriggerSaveLoadSystem:
 //#  define YDTRIGGER_handle(SG)                          YDTRIGGER_HT##SG##(HashtableHandle)
-    function YDTriggerSaveLoadSystem__Init takes nothing returns nothing
+    function YDTriggerSaveLoadSystem___Init takes nothing returns nothing
             set YDHT=InitHashtable()
         set YDLOC=InitHashtable()
     endfunction
@@ -178,7 +178,7 @@ function main takes nothing returns nothing
 	call CreateUnits()
 	call InitBlizzard()
 
-call ExecuteFunc("YDTriggerSaveLoadSystem__Init")
+call ExecuteFunc("YDTriggerSaveLoadSystem___Init")
 
 	call InitGlobals()
 	call InitCustomTriggers()

@@ -1,0 +1,2 @@
+UI\TalentPanel.fdf
+TalentPanel.fdf
