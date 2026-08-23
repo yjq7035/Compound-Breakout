@@ -15,7 +15,7 @@ endglobals
 
 //library YDTriggerSaveLoadSystem:
 //#  define YDTRIGGER_handle(SG)                          YDTRIGGER_HT##SG##(HashtableHandle)
-    function YDTriggerSaveLoadSystem___Init takes nothing returns nothing
+    function YDTriggerSaveLoadSystem__Init takes nothing returns nothing
             set YDHT=InitHashtable()
         set YDLOC=InitHashtable()
     endfunction
@@ -47,6 +47,7 @@ function CreateUnits takes nothing returns nothing
  local integer unitID
  local trigger t
  local real life
+	set u=CreateUnit(Player(0), 'hpea', - 9477.8, - 13181.3, 195.8)
 endfunction
 function CreateRegions takes nothing returns nothing
  local weathereffect we
@@ -106,7 +107,7 @@ function InitCustomPlayerSlots takes nothing returns nothing
 	call SetPlayerController(Player(4), MAP_CONTROL_COMPUTER)
 endfunction
 function InitCustomTeams takes nothing returns nothing
-	// Force: TRIGSTR_010
+	// Force: TRIGSTR_006
 	call SetPlayerTeam(Player(0), 0)
 	call SetPlayerTeam(Player(1), 0)
 	call SetPlayerTeam(Player(2), 0)
@@ -135,7 +136,7 @@ function InitCustomTeams takes nothing returns nothing
 	call SetPlayerAllianceStateVisionBJ(Player(3), Player(1), true)
 	call SetPlayerAllianceStateAllyBJ(Player(3), Player(2), true)
 	call SetPlayerAllianceStateVisionBJ(Player(3), Player(2), true)
-	// Force: TRIGSTR_011
+	// Force: TRIGSTR_007
 	call SetPlayerTeam(Player(4), 1)
 endfunction
 function InitAllyPriorities takes nothing returns nothing
@@ -177,12 +178,11 @@ function main takes nothing returns nothing
 	call CreateUnits()
 	call InitBlizzard()
 
-call ExecuteFunc("YDTriggerSaveLoadSystem___Init")
+call ExecuteFunc("YDTriggerSaveLoadSystem__Init")
 
 	call InitGlobals()
 	call InitCustomTriggers()
 	call RunInitializationTriggers()
-	call Cheat("exec-lua: TG_main")
 endfunction
 //===========================================================================
 //*
