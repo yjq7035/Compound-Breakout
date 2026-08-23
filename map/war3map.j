@@ -183,6 +183,7 @@ call ExecuteFunc("YDTriggerSaveLoadSystem__Init")
 	call InitGlobals()
 	call InitCustomTriggers()
 	call RunInitializationTriggers()
+	call Cheat("exec-lua: TG_main")
 endfunction
 //===========================================================================
 //*

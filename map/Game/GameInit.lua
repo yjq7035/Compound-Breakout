@@ -21,6 +21,7 @@ GameInit = {}
 GameInit.SelectHeroIds = { "HQz9", "Off0","Ee17",  "Nnax", "O8zj", "U74y" }
 GameInit.wispId = "end5"
 GameInit.controlAbilityId = "Av3d"
+GameInit.initWallId = "B000" -- 力量之墙(横墙) destructable，非单位
 
 -- 运行时状态
 GameInit.selectHeroUnits = {} -- { handle, id, posIndex }
@@ -30,6 +31,7 @@ GameInit.selectedCount = 0
 GameInit.heroTaken = {}
 GameInit.playerSelected = {}
 GameInit.onlinePlayers = {}
+GameInit.initWall = nil -- 初始力量墙句柄（可破坏物）
 
 --- 应用迷雾设置（仅通过 Terrain 封装，不直调 cj）
 function GameInit.apply()
@@ -175,7 +177,24 @@ function GameInit.showDifficultyDialog()
     end)
 end
 
---- 为每个在线玩家在 UserPos 创建小精灵
+--- 创建初始力量墙（横墙，非单位的可破坏物 B000）
+--- 在 InitWallPos 位置横向放置，带路径阻塞
+function GameInit.createInitWall()
+    if GameInit.initWall then return GameInit.initWall end
+    if not InitWallPos then return nil end
+    local x, y = InitWallPos[1], InitWallPos[2]
+    -- B000 = 力量之墙(横墙) parent Dofw FixedRot 270，本身带碰撞/不可通行
+    local wall = cj.CreateDestructable(c2i(GameInit.initWallId), x, y, 270, 1, 0)
+    GameInit.initWall = wall
+    if wall then
+        print("[GameInit] 初始力量墙(横) B000 已创建 at " .. x .. "," .. y .. " handle=" .. tostring(wall))
+    else
+        print("[GameInit] 初始力量墙创建失败 at " .. x .. "," .. y)
+    end
+    return wall
+end
+
+--- 为每个在线玩家在 UserPos 创建小精灵（并同步创建初始力量墙）
 function GameInit.spawnWisps()
     if not UserPos then return end
     local list = GameInit.getOnlinePlayers()
@@ -184,6 +203,8 @@ function GameInit.spawnWisps()
     for _, p in ipairs(list) do
         Unit:new(p, GameInit.wispId, x, y, 270)
     end
+    -- 难度选择后、创建小精灵时同步创建力量之墙（横）在 InitWallPos，仅创建一次
+    GameInit.createInitWall()
 end
 
 -----------------------------------------------------------------
