@@ -18,7 +18,7 @@ GameInit = {}
 -- 6个英雄ID（顺序对应 SelectHeroPos 1~6）
 -- 左3：治疗(HQz9)、坦克(Off0)、远程(E00R 原E2nx已保留以排查ID冲突)
 -- 右3：战士(Nnax)、法师(O8zj)、召唤(U74y)
-GameInit.SelectHeroIds = { "HQz9", "Off0", "E00R", "Nnax", "O8zj", "U74y" }
+GameInit.SelectHeroIds = { "HQz9", "Off0","Ee17",  "Nnax", "O8zj", "U74y" }
 GameInit.wispId = "end5"
 GameInit.controlAbilityId = "Av3d"
 
