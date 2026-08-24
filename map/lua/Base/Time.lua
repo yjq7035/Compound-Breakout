@@ -6,7 +6,7 @@
 --   t:pause():resume()
 --   t:destroy()
 -- 说明：单核模式下 Timer 不再持有原生 timer 句柄，
---       故原 TimerDialog(计时器窗口) 已废弃删除。
+--       计时器窗口仅对 useRealClock=true 且传入文本参数的 Timer 生效（需求2026-08-24）。
 -- ============================================================
 
 -----------------------------------------------------------------
@@ -96,7 +96,48 @@ local _inc = 0                  -- 内核 tick 计数，每 10ms +1
 local _kernel = {}              -- _kernel[tick] = { [id] = timerObj }
 local _seq = 0                  -- Timer 自增 id
 local _TICK = 0.01              -- 内核周期（秒）
-local _realClockTimers = {}     -- useRealClock 计时器列表（独立于内核桶，按 os.clock 驱动）
+local _realClockTimers = {}     -- useRealClock 计时器列表（独立于内核桶，按 _inc×_TICK 驱动）
+
+-- 真计时器窗口：仅 useRealClock=true 且传入文本时创建原生 timer+dialog，仅用于显示
+local function _createRealDialog(t, title, timeout, periodic)
+    if not title or title == "" then return end
+    -- 防重复
+    if t._dialog then pcall(cj.DestroyTimerDialog, t._dialog) t._dialog=nil end
+    if t._dialogTimer then pcall(cj.DestroyTimer, t._dialogTimer) t._dialogTimer=nil end
+    local nt = cj.CreateTimer()
+    if not nt then return end
+    -- dummy 回调，仅驱动窗口倒计时显示
+    cj.TimerStart(nt, timeout, periodic or false, function() end)
+    local dlg = cj.CreateTimerDialog(nt)
+    if dlg then
+        cj.TimerDialogSetTitle(dlg, title)
+        cj.TimerDialogDisplay(dlg, true)
+        t._dialogTimer = nt
+        t._dialog = dlg
+        t._dialogText = title
+    else
+        -- 创建失败则销毁 timer
+        pcall(cj.DestroyTimer, nt)
+    end
+end
+local function _destroyRealDialog(t)
+    if t._dialog then pcall(cj.DestroyTimerDialog, t._dialog) t._dialog=nil end
+    if t._dialogTimer then pcall(cj.DestroyTimer, t._dialogTimer) t._dialogTimer=nil end
+    t._dialogText=nil
+end
+local function _pauseRealDialog(t)
+    if t._dialogTimer then pcall(cj.PauseTimer, t._dialogTimer) end
+end
+local function _resumeRealDialog(t)
+    if t._dialogTimer then pcall(cj.ResumeTimer, t._dialogTimer) end
+end
+local function _restartRealDialog(t, timeout, periodic)
+    if not t._dialog then return end
+    if t._dialogTimer then
+        -- 重启原生 timer 以重置倒计时
+        cj.TimerStart(t._dialogTimer, timeout, periodic or false, function() end)
+    end
+end
 
 -- 桶结构：保留插入顺序（数组 list）+ 按 id 索引（byId，供 unschedule 精确移除）
 -- ★ [LAN-SYNC] 原实现用 pairs(bucket) 执行回调，Lua 表哈希迭代序跨机不保证一致；
@@ -151,7 +192,8 @@ local function _tick()
     for i = #_realClockTimers, 1, -1 do
         local t = _realClockTimers[i]
         if (t._dead or t._paused) then
-            table.remove(_realClockTimers, i)
+            -- 暂停的计时器保留在列表，仅跳过（由 pause/resume 控制），不在tick中移除
+            if t._dead then table.remove(_realClockTimers, i) end
         elseif (not t._dead and not t._paused and t._handler ~= nil) then
             local elapsed = now - t._realStart
             if (elapsed >= t._timeout) then
@@ -162,9 +204,12 @@ local function _tick()
                 t._runCount = t._runCount + 1
                 if (t._periodic and not t._dead) then
                     t._realStart = now    -- 周期计时器：重置起始时间
+                    -- 周期真计时器：窗口不销毁，随 dialogTimer 循环倒计时
                 else
                     t._dead = true        -- 一次性：自动死亡
                     t._handler = nil
+                    -- 一次性真计时器到期：自动销毁窗口
+                    if t._dialog then _destroyRealDialog(t) end
                     -- ★ [FIX 2026-08-14] 防 double-remove：回调内若已自行 t:destroy()，本元素已被移除，
                     --   此处再 remove 会误删相邻兄弟计时器（其管理的特效/循环永久残留）或越界报错；仅原位才移除。
                     if (_realClockTimers[i] == t) then
@@ -274,6 +319,9 @@ local function newTimer()
         _nativeCb = nil,
         _useRealClock = false,
         _realStart = nil,
+        _dialog = nil,
+        _dialogTimer = nil,
+        _dialogText = nil,
     }
     setmetatable(obj, Timer)
     return obj
@@ -284,9 +332,10 @@ end
 ---@param periodic boolean 是否循环
 ---@param handlerFunc fun(timer: Timer) 回调
 ---@param separate boolean|nil true=使用独立原生计时器（引擎直接派发，不走单核内核桶）；nil/false=走单核内核
----@param useRealClock boolean|nil true=使用真时钟(os.clock)驱动，不受游戏暂停/速度影响
+---@param useRealClock boolean|nil true=使用真时钟驱动，不受游戏暂停/速度影响（同步时钟 _inc×_TICK）
+---@param text string|nil 仅当 useRealClock=true 且传入非空文本时，创建并显示计时器窗口（TimerDialog），默认显示；销毁时一并销毁
 ---@return Timer
-function Timer:new(timeout, periodic, handlerFunc, separate, useRealClock)
+function Timer:new(timeout, periodic, handlerFunc, separate, useRealClock, text)
     if (timeout == nil or handlerFunc == nil) then return end
     local obj = newTimer()
     obj._timeout = timeout
@@ -300,6 +349,8 @@ function Timer:new(timeout, periodic, handlerFunc, separate, useRealClock)
         -- [DESYNC-FIX] 同步时钟：_inc×_TICK（跨机一致），勿改回 os.clock（双机 CPU 时间不同步）
         obj._realStart = _inc * _TICK
         _realClockTimers[#_realClockTimers + 1] = obj
+        -- 仅真计时器且文本有值时创建窗口，默认显示
+        if text and text ~= "" then _createRealDialog(obj, text, timeout, obj._periodic) end
     elseif (obj._separate) then
         _nativeStart(obj, timeout)
     else
@@ -328,6 +379,11 @@ function Timer:start(timeout, periodic, handlerFunc)
         self._paused = false
         self._remainTicks = nil
         self._realStart = _inc * _TICK    -- [DESYNC-FIX] 同步时钟（勿改回 os.clock）
+        -- 若存在窗口则重启窗口计时
+        if self._dialog then _restartRealDialog(self, t, p) end
+        -- 确保仍在列表中（pause后未移除，但兜底）
+        local found=false; for _,v in ipairs(_realClockTimers) do if v==self then found=true break end end
+        if not found then _realClockTimers[#_realClockTimers+1]=self end
         return self
     end
     if (self._separate) then
@@ -360,6 +416,7 @@ function Timer:pause()
     if (self._useRealClock) then
         -- 真时钟：记录已流逝秒数（同步时钟 _inc×_TICK）
         self._remainTicks = (_inc * _TICK) - self._realStart
+        _pauseRealDialog(self)
     elseif (self._separate) then
         if (self._nativeTimer ~= nil) then
             cj.PauseTimer(self._nativeTimer)
@@ -383,6 +440,7 @@ function Timer:resume()
     if (self._useRealClock) then
         -- 真时钟：重置起始时间，减去已流逝时间（同步时钟 _inc×_TICK）
         self._realStart = (_inc * _TICK) - (remain or 0)
+        _resumeRealDialog(self)
     elseif (self._separate) then
         if (self._nativeTimer ~= nil and self._nativeCb ~= nil) then
             -- PauseTimer 后同一句柄可直接重新启动（_remainTicks 为秒）
@@ -394,11 +452,13 @@ function Timer:resume()
     return self
 end
 
---- 销毁计时器（独立模式销毁原生句柄；内核模式从桶中移除；真时钟从列表移除）
+--- 销毁计时器（独立模式销毁原生句柄；内核模式从桶中移除；真时钟从列表移除，若为真计时器且有窗口则一并销毁）
 ---@return Timer
 function Timer:destroy()
     if (self._dead) then return self end
     if (self._useRealClock) then
+        -- 真计时器窗口：若存在则一并销毁
+        if self._dialog or self._dialogTimer then _destroyRealDialog(self) end
         -- 真时钟：从列表中移除
         for i = #_realClockTimers, 1, -1 do
             if (_realClockTimers[i] == self) then

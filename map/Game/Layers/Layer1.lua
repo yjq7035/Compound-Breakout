@@ -7,8 +7,9 @@
 --   2. 封装关卡力量墙的创建/销毁（可破坏物，非单位）
 --   3. 提供关卡生命周期：Layer1.start / Layer1.shutdown
 --   4. 营地系统 h9Z4->hlc4 30s刷新 上限4+在线 初始2
---   5. Boss系统 h31v / hbaj 宫格
+--   5. Boss系统 h31v(1号)/hqR6(2号)/h01e(3号) + hbaj 仆从宫格（分阶段创建防隔墙偷打）
 --   6. 关卡触发：营地摧毁/Boss击杀 移除对应墙，3号后350区域全员进入通关
+--   7. 分阶段流程：start仅创建1号内容；1号击杀后创建2号内容；2号击杀后创建3号内容（墙体5个坐标保持不变）
 --
 -- 坐标来源（用户提供，2026-08-23）：
 --   1. -11147.3, -12794.7  横墙  B000 parent Dofw FixedRot 270
@@ -30,8 +31,9 @@
 -- 复活/商店坐标（2026-08-24）：
 --   复活点 -11787.8, -14967.1
 --   药剂商店 -11388.4, -14565.7
--- Boss仆从（2026-08-24）：
---   1号 以 -14300.2,-10995.4 为中心宫格 N个 间隔35
+-- Boss仆从（2026-08-24 fix 2026-08-24）：
+--   1号 以 -14300.2,-10995.4 为中心 3x3=9个 间隔200
+--        中间行以中心为基准 左右各200；上行y+200/下行y-200 同样3个
 --   2号 以boss面向前100码为起点，宫格4个：起点左右2个，推前35再2个
 --   3号 以boss为中心宫格 N个 间隔35
 -- 触发墙（用户给出大概坐标，自动最近匹配）：
@@ -95,7 +97,7 @@ Layer1PotionShopPos = Layer1.potionShopPos
 
 Layer1.bossMinionSpacing = 35
 Layer1.bossMinions = {
-    [1] = { center = { x = -14300.2, y = -10995.4 }, spacing = 35, name = "1号仆从" },
+    [1] = { center = { x = -14300.2, y = -10995.4 }, spacing = 200, count = 9, name = "1号仆从" },
     [2] = { forward = 100, spacing = 35, count = 4, name = "2号仆从" },
     [3] = { center = "boss", spacing = 35, name = "3号仆从" },
 }
@@ -104,10 +106,14 @@ Layer1BossMinions = Layer1.bossMinions
 Layer1.campId    = "h9Z4"
 Layer1.guardId   = "hlc4"
 Layer1.boss1Id   = "h31v"
+Layer1.boss2Id   = "hqR6"
+Layer1.boss3Id   = "h01e"
 Layer1.minionId  = "hbaj"
 Layer1CampId   = Layer1.campId
 Layer1GuardId  = Layer1.guardId
 Layer1Boss1Id  = Layer1.boss1Id
+Layer1Boss2Id  = Layer1.boss2Id
+Layer1Boss3Id  = Layer1.boss3Id
 Layer1MinionId = Layer1.minionId
 
 -- 运行时
@@ -116,7 +122,10 @@ Layer1.campData = {}
 Layer1.campTimer = nil -- 唯一true计时器驱动所有营地（每30s检查）
 Layer1.boss1Unit = nil
 Layer1.boss1Minions = {}
+Layer1.boss2Minions = {}
+Layer1.boss3Minions = {}
 Layer1.bossUnits = {} -- [1..3] = Unit
+Layer1.bossStage = 1 -- 1=仅1号已创建 2=2号已创建 3=3号已创建
 -- 关卡流程状态
 Layer1.started = false
 Layer1.finished = false
@@ -234,6 +243,11 @@ function Layer1.removeWallNear(tx, ty, reason)
         -- 同步从 handles 移除
         for k, vh in ipairs(Layer1.handles) do if vh == h then table.remove(Layer1.handles, k) break end end
         print(string.format("[Layer1] 墙已移除 %s (最近 %.1f码) tx=%.1f,%.1f -> wall %s %.1f,%.1f reason=%s", w.name, bestDist, tx, ty, w.name, w.x, w.y, reason or ""))
+        -- 中央系统信息：力量墙销毁
+        if SystemMessage and SystemMessage.send then
+            local wallMsg = string.format("力量墙已销毁 - %s - %s", reason or w.name, w.name)
+            SystemMessage.send({{"STR", wallMsg, SystemMessage.COLOR_INFO}}, 3.0)
+        end
         return true
     else
         print(string.format("[Layer1] 墙已不存在或已移除 %s 最近 %.1f码", w.name, bestDist))
@@ -277,6 +291,26 @@ function Layer1.isCreated() return #Layer1.handles > 0 end
 -- ============================================================
 -- Boss 仆从宫格公式
 -- ============================================================
+-- 1号Boss专用：以中心为中间行，中心左右200，上行y+200/下行y-200 各3个，共9个
+function Layer1.calcBoss1Grid(cx, cy, spacing)
+    if not cx or not cy then return {} end
+    spacing = spacing or 200
+    local positions = {}
+    -- 上行 y+spacing
+    for _, dx in ipairs({ -spacing, 0, spacing }) do
+        table.insert(positions, { x = cx + dx, y = cy + spacing })
+    end
+    -- 中间行 y
+    for _, dx in ipairs({ -spacing, 0, spacing }) do
+        table.insert(positions, { x = cx + dx, y = cy })
+    end
+    -- 下行 y-spacing
+    for _, dx in ipairs({ -spacing, 0, spacing }) do
+        table.insert(positions, { x = cx + dx, y = cy - spacing })
+    end
+    return positions
+end
+
 function Layer1.calcGridPositions(cx, cy, count, spacing)
     if not cx or not cy or not count or count <= 0 then return {} end
     spacing = spacing or Layer1.bossMinionSpacing or 35
@@ -313,7 +347,11 @@ end
 
 function Layer1.getBossMinionPositions(bossIndex, bossX, bossY, facingDeg, count, spacing)
     if bossIndex == 1 then
-        local cfg = Layer1.bossMinions[1]; spacing = spacing or cfg.spacing; count = count or cfg.count or 9
+        local cfg = Layer1.bossMinions[1]; spacing = spacing or cfg.spacing or 200; count = count or cfg.count or 9
+        -- 固定 9个 3x3 间隔200，以配置中心为中间行中心
+        if count == 9 and spacing == 200 then
+            return Layer1.calcBoss1Grid(cfg.center.x, cfg.center.y, spacing)
+        end
         return Layer1.calcGridPositions(cfg.center.x, cfg.center.y, count, spacing)
     elseif bossIndex == 2 then
         if not bossX or not bossY then bossX = Layer1.bosses[2].x; bossY = Layer1.bosses[2].y end
@@ -387,12 +425,14 @@ function Layer1.createBoss1()
     local pos = Layer1.bosses[1]; local p = getEnemyPlayer()
     local u = Unit:new(p, Layer1.boss1Id, pos.x, pos.y, 270)
     Layer1.boss1Unit = u; Layer1.bossUnits[1] = u
+    Layer1.bossStage = math.max(Layer1.bossStage, 1)
     if u then print(string.format("[Layer1] 1号Boss %s 已创建 at %.1f,%.1f", Layer1.boss1Id, pos.x, pos.y)) end
     return u
 end
 
 function Layer1.spawnBoss1Minions(count, spacing)
-    count = count or 9; spacing = spacing or Layer1.bossMinionSpacing
+    local cfg = Layer1.bossMinions[1]
+    count = count or cfg.count or 9; spacing = spacing or cfg.spacing or 200
     local positions = Layer1.getBossMinionPositions(1, nil, nil, nil, count, spacing)
     local p = getEnemyPlayer(); Layer1.boss1Minions = {}
     for _, pos in ipairs(positions) do local u = Unit:new(p, Layer1.minionId, pos.x, pos.y, 270) if u then table.insert(Layer1.boss1Minions, u) end end
@@ -406,26 +446,73 @@ function Layer1.clearBoss1Minions()
     print("[Layer1] 1号Boss仆从已清理 count=" .. n)
 end
 
+-- 2号Boss：仅在1号击杀后创建，避免隔墙被远程命中
+function Layer1.createBoss2()
+    if Layer1.bossUnits[2] and isUnitAlive(Layer1.bossUnits[2]) then print("[Layer1] 2号Boss已存在") return Layer1.bossUnits[2] end
+    local pos = Layer1.bosses[2]; local p = getEnemyPlayer()
+    local u = Unit:new(p, Layer1.boss2Id, pos.x, pos.y, 270)
+    Layer1.bossUnits[2] = u
+    Layer1.bossStage = math.max(Layer1.bossStage, 2)
+    if u then print(string.format("[Layer1] 2号Boss %s 已创建 at %.1f,%.1f (阶段2)", Layer1.boss2Id, pos.x, pos.y)) end
+    return u
+end
+
+function Layer1.spawnBoss2Minions(facingDeg)
+    -- 2号仆从：以boss面向前100码为起点，宫格4个
+    local pos = Layer1.bosses[2]
+    local positions = Layer1.getBossMinionPositions(2, pos.x, pos.y, facingDeg or 270, nil, nil)
+    local p = getEnemyPlayer(); Layer1.boss2Minions = {}
+    for _, mpos in ipairs(positions) do local u = Unit:new(p, Layer1.minionId, mpos.x, mpos.y, facingDeg or 270) if u then table.insert(Layer1.boss2Minions, u) end end
+    print(string.format("[Layer1] 2号Boss仆从 %s 前向宫格已刷新 count=%d", Layer1.minionId, #Layer1.boss2Minions))
+    return Layer1.boss2Minions
+end
+
+function Layer1.clearBoss2Minions()
+    for _, u in ipairs(Layer1.boss2Minions) do if u then u:destroy() end end
+    local n = #Layer1.boss2Minions; Layer1.boss2Minions = {}
+    print("[Layer1] 2号Boss仆从已清理 count=" .. n)
+end
+
+-- 3号Boss：仅在2号击杀后创建
+function Layer1.createBoss3()
+    if Layer1.bossUnits[3] and isUnitAlive(Layer1.bossUnits[3]) then print("[Layer1] 3号Boss已存在") return Layer1.bossUnits[3] end
+    local pos = Layer1.bosses[3]; local p = getEnemyPlayer()
+    local u = Unit:new(p, Layer1.boss3Id, pos.x, pos.y, 270)
+    Layer1.bossUnits[3] = u
+    Layer1.bossStage = math.max(Layer1.bossStage, 3)
+    if u then print(string.format("[Layer1] 3号Boss %s 已创建 at %.1f,%.1f (阶段3)", Layer1.boss3Id, pos.x, pos.y)) end
+    return u
+end
+
+function Layer1.spawnBoss3Minions(count, spacing)
+    count = count or 8; spacing = spacing or Layer1.bossMinionSpacing
+    local pos = Layer1.bosses[3]
+    local positions = Layer1.getBossMinionPositions(3, pos.x, pos.y, nil, count, spacing)
+    local p = getEnemyPlayer(); Layer1.boss3Minions = {}
+    for _, mpos in ipairs(positions) do local u = Unit:new(p, Layer1.minionId, mpos.x, mpos.y, 270) if u then table.insert(Layer1.boss3Minions, u) end end
+    print(string.format("[Layer1] 3号Boss仆从 %s 宫格已刷新 N=%d count=%d", Layer1.minionId, count, #Layer1.boss3Minions))
+    return Layer1.boss3Minions
+end
+
+function Layer1.clearBoss3Minions()
+    for _, u in ipairs(Layer1.boss3Minions) do if u then u:destroy() end end
+    local n = #Layer1.boss3Minions; Layer1.boss3Minions = {}
+    print("[Layer1] 3号Boss仆从已清理 count=" .. n)
+end
+
+-- 兼容旧接口：仅创建1号（分阶段后2/3号不再随start创建）
 function Layer1.createBosses()
-    -- 1号已单独，2/3号暂用同模型占位（后续可替换ID）
     Layer1.createBoss1()
-    for i = 2, 3 do
-        if not Layer1.bossUnits[i] or not isUnitAlive(Layer1.bossUnits[i]) then
-            local pos = Layer1.bosses[i]
-            local p = getEnemyPlayer()
-            -- 2/3号Boss ID 暂复用 h31v，如有独立ID请替换
-            local bid = Layer1.boss1Id
-            local u = Unit:new(p, bid, pos.x, pos.y, 270)
-            Layer1.bossUnits[i] = u
-            if u then print(string.format("[Layer1] %d号Boss %s 已创建 at %.1f,%.1f", i, bid, pos.x, pos.y)) end
-        end
-    end
+    print("[Layer1] createBosses 已改为分阶段，仅创建1号Boss；2/3号将在击杀后依次创建")
 end
 
 function Layer1.destroyBosses()
     for i, u in pairs(Layer1.bossUnits) do if u then u:destroy() end end
     Layer1.bossUnits = {}; Layer1.boss1Unit = nil
+    Layer1.bossStage = 1
     Layer1.clearBoss1Minions()
+    Layer1.clearBoss2Minions()
+    Layer1.clearBoss3Minions()
     print("[Layer1] Boss已销毁")
 end
 
@@ -471,11 +558,14 @@ local function registerLayerEvents()
                 if hitCamp.idx == 1 then
                     Layer1.removeWallNear(Layer1.triggerWalls.camp1.tx, Layer1.triggerWalls.camp1.ty, "营地1摧毁")
                     print("[Layer1] 营地1被摧毁，横墙已移除")
+                    if SystemMessage and SystemMessage.send then SystemMessage.send({{"STR", "营地1已摧毁", SystemMessage.COLOR_SUCCESS}}, 3.0) end
                 elseif hitCamp.idx == 2 then
                     Layer1.removeWallNear(Layer1.triggerWalls.camp2.tx, Layer1.triggerWalls.camp2.ty, "营地2摧毁")
                     print("[Layer1] 营地2被摧毁，竖墙1已移除")
+                    if SystemMessage and SystemMessage.send then SystemMessage.send({{"STR", "营地2已摧毁", SystemMessage.COLOR_SUCCESS}}, 3.0) end
                 else
                     print(string.format("[Layer1] 营地%d被摧毁", hitCamp.idx))
+                    if SystemMessage and SystemMessage.send then SystemMessage.send({{"STR", string.format("营地%d已摧毁", hitCamp.idx), SystemMessage.COLOR_SUCCESS}}, 3.0) end
                 end
                 -- 清理该营地残留獄卒绑定（死亡时已解绑，此处兜底）
                 hitCamp.guards = {}
@@ -508,13 +598,47 @@ local function registerLayerEvents()
 
         if killerBossIdx == 1 then
             Layer1.removeWallNear(Layer1.triggerWalls.boss1.tx, Layer1.triggerWalls.boss1.ty, "1号Boss击杀")
-            print("[Layer1] 1号Boss已击杀，竖墙已移除")
+            print("[Layer1] 1号Boss已击杀，竖墙2已移除")
+            if SystemMessage and SystemMessage.send then
+                SystemMessage.send({{"STR", "1号Boss已击杀", SystemMessage.COLOR_SUCCESS}}, 3.0)
+            end
+            Layer1.clearBoss1Minions()
+            -- 分阶段：1号击杀后才创建2号Boss及其仆从，避免隔墙被远程命中
+            if not Layer1.bossUnits[2] or not isUnitAlive(Layer1.bossUnits[2]) then
+                Layer1.createBoss2()
+                Layer1.spawnBoss2Minions(270)
+                print("[Layer1] 阶段推进：2号Boss hqR6 内容已创建")
+                if SystemMessage and SystemMessage.send then
+                    SystemMessage.send({{"STR", "2号Boss已出现！", SystemMessage.COLOR_WARN}}, 3.0)
+                else
+                    Player.sendAll("2号Boss已出现！")
+                end
+            end
         elseif killerBossIdx == 2 then
             Layer1.removeWallNear(Layer1.triggerWalls.boss2.tx, Layer1.triggerWalls.boss2.ty, "2号Boss击杀")
-            print("[Layer1] 2号Boss已击杀，竖墙已移除")
+            print("[Layer1] 2号Boss已击杀，竖墙3已移除")
+            if SystemMessage and SystemMessage.send then
+                SystemMessage.send({{"STR", "2号Boss已击杀", SystemMessage.COLOR_SUCCESS}}, 3.0)
+            end
+            Layer1.clearBoss2Minions()
+            -- 分阶段：2号击杀后才创建3号Boss及其仆从
+            if not Layer1.bossUnits[3] or not isUnitAlive(Layer1.bossUnits[3]) then
+                Layer1.createBoss3()
+                Layer1.spawnBoss3Minions(8)
+                print("[Layer1] 阶段推进：3号Boss h01e 内容已创建")
+                if SystemMessage and SystemMessage.send then
+                    SystemMessage.send({{"STR", "3号Boss已出现！", SystemMessage.COLOR_WARN}}, 3.0)
+                else
+                    Player.sendAll("3号Boss已出现！")
+                end
+            end
         elseif killerBossIdx == 3 then
             Layer1.removeWallNear(Layer1.triggerWalls.boss3.tx, Layer1.triggerWalls.boss3.ty, "3号Boss击杀")
-            print("[Layer1] 3号Boss已击杀，竖墙已移除")
+            print("[Layer1] 3号Boss已击杀，竖墙4已移除")
+            if SystemMessage and SystemMessage.send then
+                SystemMessage.send({{"STR", "3号Boss已击杀", SystemMessage.COLOR_SUCCESS}}, 3.0)
+            end
+            Layer1.clearBoss3Minions()
             -- 创建通关区域
             Layer1.createExitRegion()
         end
@@ -568,7 +692,11 @@ function Layer1.onAllPlayersEntered()
     if Layer1.finished then return end
     Layer1.finished = true
     print("[Layer1] 所有玩家已进入通关区域，关卡1通关！")
-    Player.sendAll("关卡1通关！")
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", "关卡1通关！", SystemMessage.COLOR_SUCCESS}}, 3.0)
+    else
+        Player.sendAll("关卡1通关！")
+    end
     -- 移动所有玩家英雄到关卡2入口
     local entry = Layer2 and Layer2.entryPos or { x = -11398.9, y = -7748.4 }
     local ex, ey = entry.x, entry.y
@@ -599,17 +727,19 @@ function Layer1.onAllPlayersEntered()
     if ok and L2 and L2.start then L2.start() end
 end
 
--- 启动 / 关闭
+-- 启动 / 关闭（分阶段：初始仅创建1号Boss内容，2/3号击杀后依次创建，墙体5个保持不变）
 function Layer1.start()
     if Layer1.started then print("[Layer1] 已启动，跳过") return end
     Layer1.started = true; Layer1.finished = false
-    print("[Layer1] 启动关卡1")
-    Layer1.createWalls()
+    Layer1.bossStage = 1
+    print("[Layer1] 启动关卡1（分阶段）")
+    Layer1.createWalls() -- 5墙保持不变
     Layer1.createCamps()
-    Layer1.createBosses()
+    -- 初始阶段仅1号Boss，避免远程隔墙打2/3号
+    Layer1.createBoss1()
+    Layer1.spawnBoss1Minions(9)
     registerLayerEvents()
-    -- 可选：1号Boss仆从示例（默认9个，可调整）
-    -- Layer1.spawnBoss1Minions(9)
+    print("[Layer1] 初始阶段完成：仅1号Boss h31v +仆从已创建，2号hqR6/3号h01e待击杀后创建")
 end
 
 function Layer1.shutdown()

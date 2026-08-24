@@ -16,5 +16,7 @@ require "Game.frame.StatTooltip"
 
 
 
+require "Game.Skills.A00B"  -- A00B 狂暴恢复（addBuff 生命恢复）
+
 require "Game.GameInit"    -- 游戏初始化（战争迷雾 / 黑色阴影）
 require "Game.GameDamage" -- 伤害系统

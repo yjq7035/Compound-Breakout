@@ -169,8 +169,12 @@ function GameInit.showDifficultyDialog()
 
     Dialog.create(first, title, buttons, function(val)
         GameInit.difficulty = val
-        -- 广播提示（可选）
-        Player.sendAll("难度已选择: 普通难度")
+        -- 广播提示：中央系统信息
+        if SystemMessage and SystemMessage.send then
+            SystemMessage.send({{"STR", "难度已选择: 普通难度", SystemMessage.COLOR_SUCCESS}}, 3.0)
+        else
+            Player.sendAll("难度已选择: 普通难度")
+        end
 
         -- 选择后为每个在线玩家创建小精灵
         GameInit.spawnWisps()
@@ -201,6 +205,9 @@ function GameInit.removeInitWall()
     if GameInit.initWall then
         cj.RemoveDestructable(GameInit.initWall)
         print("[GameInit] 初始力量墙已移除")
+        if SystemMessage and SystemMessage.send then
+            SystemMessage.send({{"STR", "力量墙已销毁 - 初始横墙", SystemMessage.COLOR_INFO}}, 3.0)
+        end
         GameInit.initWall = nil
     end
 end
@@ -225,7 +232,7 @@ function GameInit.giveInitialGold()
     print("[GameInit] 初始金币200已发放 count=" .. #list)
 end
 
---- 注册英雄死亡 20秒后复活（当前关卡复活点）
+--- 注册英雄死亡 20秒后复活（当前关卡复活点）- 真计时器+计时器窗口+中央消息
 function GameInit.registerReviveEvent()
     if GameInit.reviveEvent then return end
     GameInit.reviveEvent = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
@@ -239,19 +246,48 @@ function GameInit.registerReviveEvent()
         if pid < 0 or pid > 3 then return end
         local rev = GameInit.getCurrentRevivePos()
         local x, y = rev.x, rev.y
+        local heroName = ""
+        local okName = pcall(function() heroName = cj.GetUnitName(dying) end)
+        if not okName or not heroName or heroName == "" then heroName = "英雄" end
+        local playerName = owner:getName()
+        if not playerName or playerName == "" then playerName = "玩家"..pid end
         print(string.format("[GameInit] 玩家%d 英雄死亡，20秒后复活 at %.1f,%.1f", pid, x, y))
-        Timer:new(20, false, function()
+        -- 中央系统信息：英雄死亡
+        if SystemMessage and SystemMessage.send then
+            local icon = SystemMessage.getUnitIcon(dying)
+            local msgText = string.format("%s 的 %s 死亡，20秒后复活", playerName, heroName)
+            if icon and icon ~= "" then
+                SystemMessage.send({{"art", icon}, {"STR", msgText, SystemMessage.COLOR_FAIL}}, 3.0)
+            else
+                SystemMessage.send({{"STR", msgText, SystemMessage.COLOR_FAIL}}, 3.0)
+            end
+        end
+        -- 真计时器倒计时 20s，标题声明哪个英雄，显示计时器窗口，销毁时窗口一并销毁
+        local dialogText = string.format("%s - %s 复活倒计时", playerName, heroName)
+        local t
+        t = Timer:new(20, false, function()
+            -- 定时器到期/销毁时窗口由 Timer:destroy / _tick 自动销毁，此处仅处理复活
             if dying and cj.GetUnitTypeId(dying) ~= 0 then
-                -- 英雄仍死亡则复活
                 if cj.IsUnitType(dying, UNIT_TYPE_DEAD) then
                     cj.ReviveHero(dying, x, y, true)
                     print(string.format("[GameInit] 玩家%d 英雄已复活", pid))
+                    if SystemMessage and SystemMessage.send then
+                        local icon2 = SystemMessage.getUnitIcon(dying)
+                        local reviveText = string.format("%s 的 %s 已复活", playerName, heroName)
+                        if icon2 and icon2 ~= "" then
+                            SystemMessage.send({{"art", icon2}, {"STR", reviveText, SystemMessage.COLOR_SUCCESS}}, 3.0)
+                        else
+                            SystemMessage.send({{"STR", reviveText, SystemMessage.COLOR_SUCCESS}}, 3.0)
+                        end
+                    end
                     if cj.GetLocalPlayer() == owner._handle then
                         Camera.panTo(x, y)
                     end
                 end
             end
-        end)
+            -- 显式销毁窗口（兜底，Timer已在_tick或destroy中处理）
+            if t and not t._dead then t:destroy() end
+        end, nil, true, dialogText)
     end)
 end
 
@@ -269,7 +305,11 @@ function GameInit.startLayer1()
     else
         print("[GameInit] Layer1 启动失败 " .. tostring(L1))
     end
-    Player.sendAll("关卡1 已启动")
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", "关卡1 已启动", SystemMessage.COLOR_INFO}}, 3.0)
+    else
+        Player.sendAll("关卡1 已启动")
+    end
 end
 
 --- 为每个在线玩家在 UserPos 创建小精灵（并同步创建初始力量墙）
@@ -352,9 +392,19 @@ function GameInit.registerControlEvent()
         GameInit.playerSelected[casterPid] = true
         GameInit.selectedCount = GameInit.selectedCount + 1
 
-        Player.sendAll(
-            casterPlayer:getName() .. " 选择了 " .. targetUnit:getName()
-        )
+        -- 中央系统信息：选择英雄
+        local selIcon = ""
+        if SystemMessage and SystemMessage.getUnitIcon then selIcon = SystemMessage.getUnitIcon(targetHandle) or "" end
+        local selText = casterPlayer:getName() .. " 选择了 " .. targetUnit:getName()
+        if SystemMessage and SystemMessage.send then
+            if selIcon and selIcon ~= "" then
+                SystemMessage.send({{"art", selIcon}, {"STR", selText, SystemMessage.COLOR_SUCCESS}}, 3.0)
+            else
+                SystemMessage.send({{"STR", selText, SystemMessage.COLOR_SUCCESS}}, 3.0)
+            end
+        else
+            Player.sendAll(selText)
+        end
 
         -- 当所有在线玩家都已选择，销毁事件
         local need = #GameInit.onlinePlayers
@@ -366,7 +416,11 @@ function GameInit.registerControlEvent()
                 GameInit.controlEvent:destroy()
                 GameInit.controlEvent = nil
             end
-            Player.sendAll("所有玩家已完成英雄选择")
+            if SystemMessage and SystemMessage.send then
+                SystemMessage.send({{"STR", "所有玩家已完成英雄选择", SystemMessage.COLOR_SUCCESS}}, 3.0)
+            else
+                Player.sendAll("所有玩家已完成英雄选择")
+            end
             -- 游戏设定1：所有玩家选完后删除初始横墙并启动关卡1
             GameInit.startLayer1()
         end
