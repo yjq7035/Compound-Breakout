@@ -246,26 +246,31 @@ function GameInit.registerReviveEvent()
         if pid < 0 or pid > 3 then return end
         local rev = GameInit.getCurrentRevivePos()
         local x, y = rev.x, rev.y
-        local heroName = ""
-        local okName = pcall(function() heroName = cj.GetUnitName(dying) end)
-        if not okName or not heroName or heroName == "" then heroName = "英雄" end
+        local reviveSec = 20
+        -- 英雄称谓：优先取 ProperName（称谓），空则回退 GetUnitName
+        local heroProper = ""
+        local okProper = pcall(function() heroProper = cj.GetHeroProperName(dying) end)
+        if not okProper or not heroProper or heroProper == "" then
+            local okName = pcall(function() heroProper = cj.GetUnitName(dying) end)
+            if not okName or not heroProper or heroProper == "" then heroProper = "英雄" end
+        end
         local playerName = owner:getName()
         if not playerName or playerName == "" then playerName = "玩家"..pid end
-        print(string.format("[GameInit] 玩家%d 英雄死亡，20秒后复活 at %.1f,%.1f", pid, x, y))
-        -- 中央系统信息：英雄死亡
+        print(string.format("[GameInit] 玩家%d 英雄死亡，%d秒后复活 at %.1f,%.1f", pid, reviveSec, x, y))
+        -- 中央系统信息：通报谁的英雄 称谓 死亡，多少秒后复活
         if SystemMessage and SystemMessage.send then
             local icon = SystemMessage.getUnitIcon(dying)
-            local msgText = string.format("%s 的 %s 死亡，20秒后复活", playerName, heroName)
+            local msgText = string.format("%s 的 %s 死亡，%d秒后复活", playerName, heroProper, reviveSec)
             if icon and icon ~= "" then
                 SystemMessage.send({{"art", icon}, {"STR", msgText, SystemMessage.COLOR_FAIL}}, 3.0)
             else
                 SystemMessage.send({{"STR", msgText, SystemMessage.COLOR_FAIL}}, 3.0)
             end
         end
-        -- 真计时器倒计时 20s，标题声明哪个英雄，显示计时器窗口，销毁时窗口一并销毁
-        local dialogText = string.format("%s - %s 复活倒计时", playerName, heroName)
+        -- 真计时器倒计时，计时器窗口仅用英雄称谓
+        local dialogText = heroProper
         local t
-        t = Timer:new(20, false, function()
+        t = Timer:new(reviveSec, false, function()
             -- 定时器到期/销毁时窗口由 Timer:destroy / _tick 自动销毁，此处仅处理复活
             if dying and cj.GetUnitTypeId(dying) ~= 0 then
                 if cj.IsUnitType(dying, UNIT_TYPE_DEAD) then
@@ -273,7 +278,7 @@ function GameInit.registerReviveEvent()
                     print(string.format("[GameInit] 玩家%d 英雄已复活", pid))
                     if SystemMessage and SystemMessage.send then
                         local icon2 = SystemMessage.getUnitIcon(dying)
-                        local reviveText = string.format("%s 的 %s 已复活", playerName, heroName)
+                        local reviveText = string.format("%s 的 %s 已复活", playerName, heroProper)
                         if icon2 and icon2 ~= "" then
                             SystemMessage.send({{"art", icon2}, {"STR", reviveText, SystemMessage.COLOR_SUCCESS}}, 3.0)
                         else

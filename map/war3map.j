@@ -15,7 +15,7 @@ endglobals
 
 //library YDTriggerSaveLoadSystem:
 //#  define YDTRIGGER_handle(SG)                          YDTRIGGER_HT##SG##(HashtableHandle)
-    function YDTriggerSaveLoadSystem__Init takes nothing returns nothing
+    function YDTriggerSaveLoadSystem___Init takes nothing returns nothing
             set YDHT=InitHashtable()
         set YDLOC=InitHashtable()
     endfunction
@@ -47,7 +47,6 @@ function CreateUnits takes nothing returns nothing
  local integer unitID
  local trigger t
  local real life
-	set u=CreateUnit(Player(0), 'hpea', - 9477.8, - 13181.3, 195.8)
 endfunction
 function CreateRegions takes nothing returns nothing
  local weathereffect we
@@ -169,7 +168,7 @@ function main takes nothing returns nothing
 	call CreateUnits()
 	call InitBlizzard()
 
-call ExecuteFunc("YDTriggerSaveLoadSystem__Init")
+call ExecuteFunc("YDTriggerSaveLoadSystem___Init")
 
 	call InitGlobals()
 	call InitCustomTriggers()
