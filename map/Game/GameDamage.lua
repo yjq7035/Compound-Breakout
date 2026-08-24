@@ -174,14 +174,14 @@ local function showDamageFloat(targetHandle, damage, isPhys, isCrit)
     -- 遍历伤害数字的每一位，为每个数字创建对应特效
     for i = 1, count do
         local digit = tonumber(dmgStr:sub(i, i))  -- 提取当前位的数字
-        local path  = string.format([[TX\INT\%s%d.mdx]], typeChar, digit)  -- 构建特效路径
+        local path  = string.format([[INT\%s%d.mdx]], typeChar, digit)  -- 构建特效路径
 
         Effect:new(path, baseX - 24 * (count - i),baseY,nil,0)
     end
 
     -- 如果是暴击，在数字最前面添加暴击标记特效
     if isCrit then
-        Effect:new(string.format([[TX\INT\%sB.mdx]], typeChar), baseX - 24 * count,baseY,nil,0)
+        Effect:new(string.format([[INT\%sB.mdx]], typeChar), baseX - 24 * count,baseY,nil,0)
     end
 
 end

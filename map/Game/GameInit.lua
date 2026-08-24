@@ -32,6 +32,8 @@ GameInit.heroTaken = {}
 GameInit.playerSelected = {}
 GameInit.onlinePlayers = {}
 GameInit.initWall = nil -- 初始力量墙句柄（可破坏物）
+GameInit.currentLayer = 0 -- 当前关卡 0=未开始 1=关卡1 2=关卡2
+GameInit.reviveEvent = nil -- 英雄死亡复活事件
 
 --- 应用迷雾设置（仅通过 Terrain 封装，不直调 cj）
 function GameInit.apply()
@@ -194,6 +196,82 @@ function GameInit.createInitWall()
     return wall
 end
 
+--- 移除初始力量墙（选英完成后调用）
+function GameInit.removeInitWall()
+    if GameInit.initWall then
+        cj.RemoveDestructable(GameInit.initWall)
+        print("[GameInit] 初始力量墙已移除")
+        GameInit.initWall = nil
+    end
+end
+
+--- 获取当前关卡复活点
+function GameInit.getCurrentRevivePos()
+    if GameInit.currentLayer == 2 and Layer2 and Layer2.revivePos then
+        return Layer2.revivePos
+    end
+    if Layer1 and Layer1.revivePos then
+        return Layer1.revivePos
+    end
+    return { x = -11787.8, y = -14967.1 }
+end
+
+--- 设置所有在线玩家初始金币200
+function GameInit.giveInitialGold()
+    local list = GameInit.getOnlinePlayers()
+    for _, p in ipairs(list) do
+        p:setState(PLAYER_STATE_RESOURCE_GOLD, 200)
+    end
+    print("[GameInit] 初始金币200已发放 count=" .. #list)
+end
+
+--- 注册英雄死亡 20秒后复活（当前关卡复活点）
+function GameInit.registerReviveEvent()
+    if GameInit.reviveEvent then return end
+    GameInit.reviveEvent = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
+        local dying = ev.unit
+        if not dying then return end
+        if not cj.IsUnitType(dying, UNIT_TYPE_HERO) then return end
+        local owner = Player.fromHandle(cj.GetOwningPlayer(dying))
+        if not owner or not owner:isUser() then return end
+        -- 仅处理在线玩家英雄
+        local pid = owner:getId()
+        if pid < 0 or pid > 3 then return end
+        local rev = GameInit.getCurrentRevivePos()
+        local x, y = rev.x, rev.y
+        print(string.format("[GameInit] 玩家%d 英雄死亡，20秒后复活 at %.1f,%.1f", pid, x, y))
+        Timer:new(20, false, function()
+            if dying and cj.GetUnitTypeId(dying) ~= 0 then
+                -- 英雄仍死亡则复活
+                if cj.IsUnitType(dying, UNIT_TYPE_DEAD) then
+                    cj.ReviveHero(dying, x, y, true)
+                    print(string.format("[GameInit] 玩家%d 英雄已复活", pid))
+                    if cj.GetLocalPlayer() == owner._handle then
+                        Camera.panTo(x, y)
+                    end
+                end
+            end
+        end)
+    end)
+end
+
+--- 启动关卡1（选英完成后）
+function GameInit.startLayer1()
+    if GameInit.currentLayer >= 1 then return end
+    GameInit.currentLayer = 1
+    GameInit.removeInitWall()
+    GameInit.giveInitialGold()
+    GameInit.registerReviveEvent()
+    -- 启动关卡1模块
+    local ok, L1 = pcall(require, "Game.Layers.Layer1")
+    if ok and L1 and L1.start then
+        L1.start()
+    else
+        print("[GameInit] Layer1 启动失败 " .. tostring(L1))
+    end
+    Player.sendAll("关卡1 已启动")
+end
+
 --- 为每个在线玩家在 UserPos 创建小精灵（并同步创建初始力量墙）
 function GameInit.spawnWisps()
     if not UserPos then return end
@@ -289,6 +367,8 @@ function GameInit.registerControlEvent()
                 GameInit.controlEvent = nil
             end
             Player.sendAll("所有玩家已完成英雄选择")
+            -- 游戏设定1：所有玩家选完后删除初始横墙并启动关卡1
+            GameInit.startLayer1()
         end
     end)
 end

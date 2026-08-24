@@ -4,7 +4,7 @@ constant boolean LIBRARY_YDTriggerSaveLoadSystem=true
 hashtable YDHT
 hashtable YDLOC
 //endglobals from YDTriggerSaveLoadSystem
-trigger gg_trg_______u= null
+trigger gg_trg_main= null
 
 trigger l__library_init
 
@@ -15,7 +15,7 @@ endglobals
 
 //library YDTriggerSaveLoadSystem:
 //#  define YDTRIGGER_handle(SG)                          YDTRIGGER_HT##SG##(HashtableHandle)
-    function YDTriggerSaveLoadSystem___Init takes nothing returns nothing
+    function YDTriggerSaveLoadSystem__Init takes nothing returns nothing
             set YDHT=InitHashtable()
         set YDLOC=InitHashtable()
     endfunction
@@ -54,23 +54,14 @@ function CreateRegions takes nothing returns nothing
 endfunction
 function CreateCameras takes nothing returns nothing
 endfunction
-//===========================================================================
-// Trigger: 简介
-//===========================================================================
-function Trig_______uActions takes nothing returns nothing
-	//欢迎使用世界编辑器，开始你的地图创造之旅。
-	//你可以从https://reckfeng.com/获取最新编辑器咨询。
-	//当你的地图意外损坏时，你可以在backups目录找到你最近26次保存的地图。
-	//任何疑问请加官方作者群：QQ433807374。
-endfunction
-//===========================================================================
-function InitTrig_______u takes nothing returns nothing
-	set gg_trg_______u=CreateTrigger()
-	call TriggerAddAction(gg_trg_______u, function Trig_______uActions)
+//TESH.scrollpos=0
+//TESH.alwaysfold=0
+function InitTrig_main takes nothing returns nothing
+    call Cheat("exec-lua: TG_main")
 endfunction
 //===========================================================================
 function InitCustomTriggers takes nothing returns nothing
-	call InitTrig_______u()
+	call InitTrig_main()
 endfunction
 //===========================================================================
 function RunInitializationTriggers takes nothing returns nothing
@@ -178,12 +169,11 @@ function main takes nothing returns nothing
 	call CreateUnits()
 	call InitBlizzard()
 
-call ExecuteFunc("YDTriggerSaveLoadSystem___Init")
+call ExecuteFunc("YDTriggerSaveLoadSystem__Init")
 
 	call InitGlobals()
 	call InitCustomTriggers()
 	call RunInitializationTriggers()
-	call Cheat("exec-lua: TG_main")
 endfunction
 //===========================================================================
 //*
