@@ -197,7 +197,7 @@ local function isUnitAlive(u)
 end
 
 local function getEnemyPlayer()
-    return Player:new(12)
+    return Player:new(4)
 end
 
 local function getCampMaxGuards()
@@ -711,7 +711,7 @@ end
 
 -- ============================================================
 -- 刷怪点（2026-08-25 调整后）
--- 中心 -12880.6,-11384.0 6单位：上行3 h11q / 中行2 hA11 / 下行1 h00p
+-- 中心 -12880.6,-11384.0 6 单位：上行 3 h11q / 中行 2 hA11 / 下行 1 h00p
 -- ============================================================
 function Layer1.spawnMobSpawn(cx, cy, spacing)
     cx = cx or Layer1.mobSpawnPos.x; cy = cy or Layer1.mobSpawnPos.y; spacing = spacing or Layer1.mobSpawnPos.spacing or 90
@@ -723,9 +723,19 @@ function Layer1.spawnMobSpawn(cx, cy, spacing)
     for _, pos in ipairs(positions) do
         local uid = pos.id or "h11q"
         local u = Unit:new(p, uid, pos.x, pos.y, 270)
-        if u then table.insert(Layer1.mobSpawnUnits, u) end
+        if u then 
+            table.insert(Layer1.mobSpawnUnits, u)
+            
+            -- 默认无敌且暂停（待激活后恢复）
+            if Layer1.mobSpawnInvincible and u.setInvulnerable then
+                pcall(function() u:setInvulnerable(true) end)
+            end
+            if u.pause then
+                pcall(function() u:pause(true) end)
+            end
+        end
     end
-    print(string.format("[Layer1] 刷怪点 已创建 中心%.1f,%.1f 间隔%d 上行3*h11q(y+90) 中行2*hA11(y) 下行1*h00p(y-90) count=%d", cx, cy, spacing, #Layer1.mobSpawnUnits))
+    print(string.format("[Layer1] 刷怪点 已创建 中心%.1f,%.1f 间隔%d 上行 3*h11q(y+90) 中行 2*hA11(y) 下行 1*h00p(y-90) count=%d (默认无敌且暂停)", cx, cy, spacing, #Layer1.mobSpawnUnits))
     return Layer1.mobSpawnUnits
 end
 
@@ -745,7 +755,7 @@ function Layer1.destroyMobSpawn()
     Layer1.clearMobSpawn()
 end
 
--- 刷怪点2
+-- 刷怪点 2
 function Layer1.spawnMobSpawn2(cx, cy, spacing)
     cx = cx or Layer1.mobSpawnPos2.x; cy = cy or Layer1.mobSpawnPos2.y; spacing = spacing or Layer1.mobSpawnPos2.spacing or 90
     local positions = Layer1.calcMobSpawnGrid2(cx, cy, spacing)
@@ -755,9 +765,19 @@ function Layer1.spawnMobSpawn2(cx, cy, spacing)
     for _, pos in ipairs(positions) do
         local uid = pos.id or "nl3r"
         local u = Unit:new(p, uid, pos.x, pos.y, 270)
-        if u then table.insert(Layer1.mobSpawnUnits2, u) end
+        if u then 
+            table.insert(Layer1.mobSpawnUnits2, u)
+            
+            -- 默认无敌且暂停（待激活后恢复）
+            if Layer1.mobSpawnInvincible2 and u.setInvulnerable then
+                pcall(function() u:setInvulnerable(true) end)
+            end
+            if u.pause then
+                pcall(function() u:pause(true) end)
+            end
+        end
     end
-    print(string.format("[Layer1] 刷怪点2 已创建 中心%.1f,%.1f 间隔%d 中心nl3r 东侧3*n611 南北2*n642 count=%d", cx, cy, spacing, #Layer1.mobSpawnUnits2))
+    print(string.format("[Layer1] 刷怪点 2 已创建 中心%.1f,%.1f 间隔%d 中心 nl3r 东侧 3*n611 南北 2*n642 count=%d (默认无敌且暂停)", cx, cy, spacing, #Layer1.mobSpawnUnits2))
     return Layer1.mobSpawnUnits2
 end
 
@@ -777,7 +797,7 @@ function Layer1.destroyMobSpawn2()
     Layer1.clearMobSpawn2()
 end
 
--- 刷怪点3
+-- 刷怪点 3
 function Layer1.spawnMobSpawn3(cx, cy, spacing)
     cx = cx or Layer1.mobSpawnPos3.x; cy = cy or Layer1.mobSpawnPos3.y; spacing = spacing or Layer1.mobSpawnPos3.spacing or 90
     local positions = Layer1.calcMobSpawnGrid3(cx, cy, spacing)
@@ -787,9 +807,19 @@ function Layer1.spawnMobSpawn3(cx, cy, spacing)
     for _, pos in ipairs(positions) do
         local uid = pos.id or "hlc4"
         local u = Unit:new(p, uid, pos.x, pos.y, 270)
-        if u then table.insert(Layer1.mobSpawnUnits3, u) end
+        if u then 
+            table.insert(Layer1.mobSpawnUnits3, u)
+            
+            -- 默认无敌且暂停（待激活后恢复）
+            if Layer1.mobSpawnInvincible3 and u.setInvulnerable then
+                pcall(function() u:setInvulnerable(true) end)
+            end
+            if u.pause then
+                pcall(function() u:pause(true) end)
+            end
+        end
     end
-    print(string.format("[Layer1] 刷怪点3 已创建 中心%.1f,%.1f 间隔%d 两边2*hlc4 count=%d", cx, cy, spacing, #Layer1.mobSpawnUnits3))
+    print(string.format("[Layer1] 刷怪点 3 已创建 中心%.1f,%.1f 间隔%d 两边 2*hlc4 count=%d (默认无敌且暂停)", cx, cy, spacing, #Layer1.mobSpawnUnits3))
     return Layer1.mobSpawnUnits3
 end
 
@@ -809,7 +839,7 @@ function Layer1.destroyMobSpawn3()
     Layer1.clearMobSpawn3()
 end
 
--- 刷怪点4
+-- 刷怪点 4
 function Layer1.spawnMobSpawn4(cx, cy, spacing)
     cx = cx or Layer1.mobSpawnPos4.x; cy = cy or Layer1.mobSpawnPos4.y; spacing = spacing or Layer1.mobSpawnPos4.spacing or 90
     local positions = Layer1.calcMobSpawnGrid4(cx, cy, spacing)
@@ -819,9 +849,19 @@ function Layer1.spawnMobSpawn4(cx, cy, spacing)
     for _, pos in ipairs(positions) do
         local uid = pos.id or "h11q"
         local u = Unit:new(p, uid, pos.x, pos.y, 270)
-        if u then table.insert(Layer1.mobSpawnUnits4, u) end
+        if u then 
+            table.insert(Layer1.mobSpawnUnits4, u)
+            
+            -- 默认无敌且暂停（待激活后恢复）
+            if Layer1.mobSpawnInvincible4 and u.setInvulnerable then
+                pcall(function() u:setInvulnerable(true) end)
+            end
+            if u.pause then
+                pcall(function() u:pause(true) end)
+            end
+        end
     end
-    print(string.format("[Layer1] 刷怪点4 已创建 中心%.1f,%.1f 间隔%d 左右2*h11q count=%d", cx, cy, spacing, #Layer1.mobSpawnUnits4))
+    print(string.format("[Layer1] 刷怪点 4 已创建 中心%.1f,%.1f 间隔%d 左右 2*h11q count=%d (默认无敌且暂停)", cx, cy, spacing, #Layer1.mobSpawnUnits4))
     return Layer1.mobSpawnUnits4
 end
 
@@ -1069,14 +1109,31 @@ end
 function Layer1.onAllPlayersEntered()
     if Layer1.finished then return end
     Layer1.finished = true
-    print("[Layer1] 所有玩家已进入通关区域，关卡1通关！")
+    print("[Layer1] 所有玩家已进入通关区域，关卡 1 通关！")
     if SystemMessage and SystemMessage.send then
-        SystemMessage.send({{"STR", "关卡1通关！", SystemMessage.COLOR_SUCCESS}}, 3.0)
+        SystemMessage.send({{"STR", "关卡 1 通关！", SystemMessage.COLOR_SUCCESS}}, 3.0)
     else
-        Player.sendAll("关卡1通关！")
+        Player.sendAll("关卡 1 通关！")
     end
-    -- 移动所有玩家英雄到关卡2入口
+    
+    -- 【问题 3 修复】更新所有玩家的起始位置到关卡 2 入口
     local entry = Layer2 and Layer2.entryPos or { x = -11398.9, y = -7748.4 }
+    for pid = 0, 3 do
+        local p = Player:new(pid)
+        if p:isPlaying() and p:isUser() then
+            -- 更新玩家的起始位置索引到关卡 2 入口（确保重生点也指向新关卡）
+            -- 注意：cj.SetPlayerStartLocation 设置的是触发器/存档中的预设位置索引
+            -- 这里我们使用 cj.SetPlayerStartLocationX/Y 直接设置坐标作为新的起始位置
+            if cj.SetPlayerStartLocation then
+                cj.SetPlayerStartLocation(p._handle, -1) -- -1 表示使用自定义坐标
+                cj.SetPlayerStartLocationX(p._handle, entry.x)
+                cj.SetPlayerStartLocationY(p._handle, entry.y)
+                print(string.format("[Layer1] 玩家%d 起始位置已更新到关卡 2 入口 %.1f,%.1f", pid, entry.x, entry.y))
+            end
+        end
+    end
+    
+    -- 移动所有玩家英雄到关卡 2 入口
     local ex, ey = entry.x, entry.y
     for pid = 0, 3 do
         local p = Player:new(pid)
@@ -1096,11 +1153,12 @@ function Layer1.onAllPlayersEntered()
             cj.DestroyGroup(g)
         end
     end
+    
     -- 切换关卡
     if GameInit then GameInit.currentLayer = 2 end
-    -- 关闭移除关卡1所有功能（不再复用）
+    -- 关闭移除关卡 1 所有功能（不再复用）
     Layer1.shutdown()
-    -- 启动关卡2
+    -- 启动关卡 2
     local ok, L2 = pcall(require, "Game.Layers.Layer2")
     if ok and L2 and L2.start then L2.start() end
 end

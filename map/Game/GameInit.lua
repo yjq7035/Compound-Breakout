@@ -32,13 +32,24 @@ GameInit.heroTaken = {}
 GameInit.playerSelected = {}
 GameInit.onlinePlayers = {}
 GameInit.initWall = nil -- 初始力量墙句柄（可破坏物）
-GameInit.currentLayer = 0 -- 当前关卡 0=未开始 1=关卡1 2=关卡2
+GameInit.currentLayer = 0 -- 当前关卡 0=未开始 1=关卡 1 2=关卡 2
 GameInit.reviveEvent = nil -- 英雄死亡复活事件
+-- 默认初始关卡：1=关卡 1，2=关卡 2（可根据需要修改）
+GameInit.initialLayer = 2
 
 --- 应用迷雾设置（仅通过 Terrain 封装，不直调 cj）
 function GameInit.apply()
     Terrain.setFogEnabled(true)
     Terrain.setFogMaskEnabled(true)
+    -- 全图可见：为所有玩家清除迷雾掩码（使用整个地图边界）
+    for pid = 0, 3 do
+        local p = Player:new(pid)
+        if p then
+            local worldRect = Rect.world()
+            local vis = Visibility.newRect(p, worldRect, FOG_OF_WAR_VISIBLE, true, false)
+            if vis then vis:start() end
+        end
+    end
 end
 
 --- 创建6个英雄到选英点（玩家15）
@@ -296,14 +307,37 @@ function GameInit.registerReviveEvent()
     end)
 end
 
---- 启动关卡1（选英完成后）
-function GameInit.startLayer1()
-    if GameInit.currentLayer >= 1 then return end
-    GameInit.currentLayer = 1
+--- 启动关卡 2（选英完成后）
+function GameInit.startLayer2()
+    if GameInit.currentLayer >= 2 then return end
+    GameInit.currentLayer = 2
+    -- 移除初始力量墙
     GameInit.removeInitWall()
     GameInit.giveInitialGold()
     GameInit.registerReviveEvent()
-    -- 启动关卡1模块
+    -- 启动关卡 2 模块
+    local ok, L2 = pcall(require, "Game.Layers.Layer2")
+    if ok and L2 and L2.start then
+        L2.start()
+    else
+        print("[GameInit] Layer2 启动失败 " .. tostring(L2))
+    end
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", "关卡 2 已启动", SystemMessage.COLOR_INFO}}, 3.0)
+    else
+        Player.sendAll("关卡 2 已启动")
+    end
+end
+
+--- 启动关卡 1（选英完成后）
+function GameInit.startLayer1()
+    if GameInit.currentLayer >= 1 then return end
+    GameInit.currentLayer = 1
+    -- 移除初始力量墙
+    GameInit.removeInitWall()
+    GameInit.giveInitialGold()
+    GameInit.registerReviveEvent()
+    -- 启动关卡 1 模块
     local ok, L1 = pcall(require, "Game.Layers.Layer1")
     if ok and L1 and L1.start then
         L1.start()
@@ -311,9 +345,9 @@ function GameInit.startLayer1()
         print("[GameInit] Layer1 启动失败 " .. tostring(L1))
     end
     if SystemMessage and SystemMessage.send then
-        SystemMessage.send({{"STR", "关卡1 已启动", SystemMessage.COLOR_INFO}}, 3.0)
+        SystemMessage.send({{"STR", "关卡 1 已启动", SystemMessage.COLOR_INFO}}, 3.0)
     else
-        Player.sendAll("关卡1 已启动")
+        Player.sendAll("关卡 1 已启动")
     end
 end
 
@@ -379,8 +413,20 @@ function GameInit.registerControlEvent()
         local key = hid ~= 0 and hid or tostring(targetHandle)
         if GameInit.heroTaken[key] then return end
 
-        -- 执行移动：转移所有权 + 移动到 ControlHeroPos
-        local cx, cy = ControlHeroPos[1], ControlHeroPos[2]
+        -- 执行移动：转移所有权 + 移动到对应关卡的入口位置
+        local cx, cy = ControlHeroPos.x, ControlHeroPos.y
+        
+        -- 根据 initialLayer 设置传送目标坐标（添加 nil 检查）
+        if GameInit.initialLayer == 2 then
+            -- 优先使用 Layer2EntryPos，如果不存在则尝试使用 Layer2.entryPos
+                cx, cy = Layer2EntryPos.x, Layer2EntryPos.y
+                print(string.format("[GameInit] 玩家选择英雄后传送到关卡 2 入口：%.1f, %.1f", cx or 0, cy or 0))
+        elseif GameInit.initialLayer == 1 then
+                cx, cy = Layer1RevivePos.x, Layer1RevivePos.y
+                print(string.format("[GameInit] 玩家选择英雄后传送到关卡 1 位置：%.1f, %.1f", cx or 0, cy or 0))
+
+        end
+        
         targetUnit:setOwner(casterPlayer, true)
         targetUnit:setPosition(cx, cy)
         -- 让英雄停止当前动作
@@ -429,8 +475,12 @@ function GameInit.registerControlEvent()
             else
                 Player.sendAll("所有玩家已完成英雄选择")
             end
-            -- 游戏设定1：所有玩家选完后删除初始横墙并启动关卡1
-            GameInit.startLayer1()
+            -- 根据 initialLayer 启动对应关卡
+            if GameInit.initialLayer == 2 then
+                GameInit.startLayer2()
+            else
+                GameInit.startLayer1()
+            end
         end
     end)
 end
