@@ -1,7 +1,7 @@
 require "lua.api.common"
 require "lua.api.blizzard"
 require "lua.api.KK_japi"
-require "lua.api.deBug"
+-- require "lua.api.deBug"
 
 require "lua.Base.Time"
 require "lua.Base.Sync"

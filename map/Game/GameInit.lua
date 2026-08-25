@@ -385,6 +385,9 @@ function GameInit.registerControlEvent()
         targetUnit:setPosition(cx, cy)
         -- 让英雄停止当前动作
         targetUnit:stop()
+        
+        local heruo = Hero.fromHandle(targetHandle)
+        heruo:addAttrs(1000,1000,1000)
 
         -- 同步将触发玩家的镜头移动到转移后位置（仅该玩家客户端）
         if cj.GetLocalPlayer() == casterPlayer._handle then

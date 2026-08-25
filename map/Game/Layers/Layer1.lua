@@ -34,8 +34,15 @@
 -- Boss仆从（2026-08-24 fix 2026-08-24）：
 --   1号 以 -14300.2,-10995.4 为中心 3x3=9个 间隔200
 --        中间行以中心为基准 左右各200；上行y+200/下行y-200 同样3个
---   2号 以boss面向前100码为起点，宫格4个：起点左右2个，推前35再2个
+--   2号 以boss面向前100码为起点，宫格5个（3个h11q+2个hA11）：起点3个（左中右），推前35再2个（左右）
 --   3号 以boss为中心宫格 N个 间隔35
+-- 刷怪点（2026-08-25 新增 2026-08-25调整）：
+--   刷怪点1 中心 -12880.6,-11384.0 6单位 间隔90（非满9宫格）
+--     上行 y+90 3个 h11q；中行 y 两边 hA11（2个）；下行 y-90 1个 h00p（居中）
+--   刷怪点2 中心 -11990.7,-12169.0 6单位 间隔90
+--     中心1个 nl3r；x+90 1个 n611 + x+90 y+90 1个 n611 + x+90 y-90 1个 n611；y-90 1个 n642 + y+90 1个 n642
+--   刷怪点3 中心 -12171.7,-13688.3 2单位 间隔90 两边各1个 hlc4
+--   刷怪点4 中心 -11148.1,-12564.9 2单位 间隔90 左右各1个 h11q
 -- 触发墙（用户给出大概坐标，自动最近匹配）：
 --   营地1 -11582.7,-12989 -> 横墙 -11162.2,-12736.6 (最近 横墙1)
 --   营地2 -11962.0,-10687.5 -> 竖墙 -13307.5,-11940.9 (最近 竖墙1)
@@ -98,10 +105,27 @@ Layer1PotionShopPos = Layer1.potionShopPos
 Layer1.bossMinionSpacing = 35
 Layer1.bossMinions = {
     [1] = { center = { x = -14300.2, y = -10995.4 }, spacing = 200, count = 9, name = "1号仆从" },
-    [2] = { forward = 100, spacing = 35, count = 4, name = "2号仆从" },
+    [2] = { forward = 100, spacing = 35, count = 5, name = "2号仆从", ids = { "h11q", "h11q", "h11q", "hA11", "hA11" } },
     [3] = { center = "boss", spacing = 35, name = "3号仆从" },
 }
 Layer1BossMinions = Layer1.bossMinions
+
+-- 新增刷怪点（2026-08-25）
+Layer1.mobSpawnPos = { x = -12880.6, y = -11384.0, spacing = 90, name = "刷怪点1" }
+Layer1.mobSpawnUnits = {} -- 运行时句柄列表
+Layer1MobSpawnPos = Layer1.mobSpawnPos
+-- 刷怪点2（2026-08-25 新增）
+Layer1.mobSpawnPos2 = { x = -11990.7, y = -12169.0, spacing = 90, name = "刷怪点2" }
+Layer1.mobSpawnUnits2 = {}
+Layer1MobSpawnPos2 = Layer1.mobSpawnPos2
+-- 刷怪点3（2026-08-25 新增）
+Layer1.mobSpawnPos3 = { x = -12171.7, y = -13688.3, spacing = 90, name = "刷怪点3" }
+Layer1.mobSpawnUnits3 = {}
+Layer1MobSpawnPos3 = Layer1.mobSpawnPos3
+-- 刷怪点4（2026-08-25 新增）
+Layer1.mobSpawnPos4 = { x = -11148.1, y = -12564.9, spacing = 90, name = "刷怪点4" }
+Layer1.mobSpawnUnits4 = {}
+Layer1MobSpawnPos4 = Layer1.mobSpawnPos4
 
 Layer1.campId    = "h9Z4"
 Layer1.guardId   = "hlc4"
@@ -126,6 +150,10 @@ Layer1.boss2Minions = {}
 Layer1.boss3Minions = {}
 Layer1.bossUnits = {} -- [1..3] = Unit
 Layer1.bossStage = 1 -- 1=仅1号已创建 2=2号已创建 3=3号已创建
+Layer1.mobSpawnCenter = Layer1.mobSpawnPos -- 别名兼容
+Layer1.mobSpawnCenter2 = Layer1.mobSpawnPos2
+Layer1.mobSpawnCenter3 = Layer1.mobSpawnPos3
+Layer1.mobSpawnCenter4 = Layer1.mobSpawnPos4
 -- 关卡流程状态
 Layer1.started = false
 Layer1.finished = false
@@ -337,12 +365,98 @@ function Layer1.calcBoss2ForwardGrid(bossX, bossY, facingDeg, forward, spacing)
     local lx, ly = -sinA * half, cosA * half
     local rx, ry = sinA * half, -cosA * half
     local fx, fy = cosA * spacing, sinA * spacing
+    -- 5个：起点行3个（左/中/右），前推一行2个（左右） -> 3个h11q + 2个hA11
     return {
-        { x = startX + lx, y = startY + ly },
-        { x = startX + rx, y = startY + ry },
-        { x = startX + fx + lx, y = startY + fy + ly },
-        { x = startX + fx + rx, y = startY + fy + ry },
+        { x = startX + lx, y = startY + ly },           -- 起点左 h11q
+        { x = startX, y = startY },                      -- 起点中 h11q
+        { x = startX + rx, y = startY + ry },           -- 起点右 h11q
+        { x = startX + fx + lx, y = startY + fy + ly }, -- 前推左 hA11
+        { x = startX + fx + rx, y = startY + fy + ry }, -- 前推右 hA11
     }
+end
+
+-- 刷怪点 6单位（2026-08-25调整）：上行3/中行2/下行1
+function Layer1.calcMobSpawnGrid(cx, cy, spacing)
+    if not cx or not cy then return {} end
+    spacing = spacing or (Layer1.mobSpawnPos and Layer1.mobSpawnPos.spacing) or 90
+    local positions = {}
+    -- 上行 y+spacing 3个 h11q
+    for _, dx in ipairs({ -spacing, 0, spacing }) do
+        table.insert(positions, { x = cx + dx, y = cy + spacing, id = "h11q" })
+    end
+    -- 中行 y 两边 hA11（左右各90，中间空缺）
+    for _, dx in ipairs({ -spacing, spacing }) do
+        table.insert(positions, { x = cx + dx, y = cy, id = "hA11" })
+    end
+    -- 下行 y-spacing 居中 1个 h00p
+    table.insert(positions, { x = cx, y = cy - spacing, id = "h00p" })
+    return positions
+end
+
+function Layer1.getMobSpawnPositions(cx, cy, spacing)
+    cx = cx or (Layer1.mobSpawnPos and Layer1.mobSpawnPos.x) or -12880.6
+    cy = cy or (Layer1.mobSpawnPos and Layer1.mobSpawnPos.y) or -11384.0
+    spacing = spacing or (Layer1.mobSpawnPos and Layer1.mobSpawnPos.spacing) or 90
+    return Layer1.calcMobSpawnGrid(cx, cy, spacing)
+end
+
+-- 刷怪点2 6单位（2026-08-25新增）：中心nl3r + 东侧3个n611 + 南北2个n642
+function Layer1.calcMobSpawnGrid2(cx, cy, spacing)
+    if not cx or not cy then return {} end
+    spacing = spacing or (Layer1.mobSpawnPos2 and Layer1.mobSpawnPos2.spacing) or 90
+    local positions = {}
+    -- 1. 中心 1个 nl3r
+    table.insert(positions, { x = cx, y = cy, id = "nl3r" })
+    -- 2. x+90 1个 n611，x+90 y+90 1个 n611，x+90 y-90 1个 n611
+    table.insert(positions, { x = cx + spacing, y = cy, id = "n611" })
+    table.insert(positions, { x = cx + spacing, y = cy + spacing, id = "n611" })
+    table.insert(positions, { x = cx + spacing, y = cy - spacing, id = "n611" })
+    -- 3. y-90 1个 n642，y+90 1个 n642（中心垂线）
+    table.insert(positions, { x = cx, y = cy - spacing, id = "n642" })
+    table.insert(positions, { x = cx, y = cy + spacing, id = "n642" })
+    return positions
+end
+
+function Layer1.getMobSpawnPositions2(cx, cy, spacing)
+    cx = cx or (Layer1.mobSpawnPos2 and Layer1.mobSpawnPos2.x) or -11990.7
+    cy = cy or (Layer1.mobSpawnPos2 and Layer1.mobSpawnPos2.y) or -12169.0
+    spacing = spacing or (Layer1.mobSpawnPos2 and Layer1.mobSpawnPos2.spacing) or 90
+    return Layer1.calcMobSpawnGrid2(cx, cy, spacing)
+end
+
+-- 刷怪点3 2单位（2026-08-25新增）：中心两边各1个 hlc4
+function Layer1.calcMobSpawnGrid3(cx, cy, spacing)
+    if not cx or not cy then return {} end
+    spacing = spacing or (Layer1.mobSpawnPos3 and Layer1.mobSpawnPos3.spacing) or 90
+    local positions = {}
+    -- 两边各1个 hlc4：x-90 与 x+90，y 保持中心
+    table.insert(positions, { x = cx - spacing, y = cy, id = "hlc4" })
+    table.insert(positions, { x = cx + spacing, y = cy, id = "hlc4" })
+    return positions
+end
+
+function Layer1.getMobSpawnPositions3(cx, cy, spacing)
+    cx = cx or (Layer1.mobSpawnPos3 and Layer1.mobSpawnPos3.x) or -12171.7
+    cy = cy or (Layer1.mobSpawnPos3 and Layer1.mobSpawnPos3.y) or -13688.3
+    spacing = spacing or (Layer1.mobSpawnPos3 and Layer1.mobSpawnPos3.spacing) or 90
+    return Layer1.calcMobSpawnGrid3(cx, cy, spacing)
+end
+
+-- 刷怪点4 2单位：左右各1个 h11q
+function Layer1.calcMobSpawnGrid4(cx, cy, spacing)
+    if not cx or not cy then return {} end
+    spacing = spacing or (Layer1.mobSpawnPos4 and Layer1.mobSpawnPos4.spacing) or 90
+    local positions = {}
+    table.insert(positions, { x = cx - spacing, y = cy, id = "h11q" })
+    table.insert(positions, { x = cx + spacing, y = cy, id = "h11q" })
+    return positions
+end
+
+function Layer1.getMobSpawnPositions4(cx, cy, spacing)
+    cx = cx or (Layer1.mobSpawnPos4 and Layer1.mobSpawnPos4.x) or -11148.1
+    cy = cy or (Layer1.mobSpawnPos4 and Layer1.mobSpawnPos4.y) or -12564.9
+    spacing = spacing or (Layer1.mobSpawnPos4 and Layer1.mobSpawnPos4.spacing) or 90
+    return Layer1.calcMobSpawnGrid4(cx, cy, spacing)
 end
 
 function Layer1.getBossMinionPositions(bossIndex, bossX, bossY, facingDeg, count, spacing)
@@ -458,12 +572,17 @@ function Layer1.createBoss2()
 end
 
 function Layer1.spawnBoss2Minions(facingDeg)
-    -- 2号仆从：以boss面向前100码为起点，宫格4个
+    -- 2号仆从：以boss面向前100码为起点，宫格5个 3*h11q+2*hA11
     local pos = Layer1.bosses[2]
     local positions = Layer1.getBossMinionPositions(2, pos.x, pos.y, facingDeg or 270, nil, nil)
     local p = getEnemyPlayer(); Layer1.boss2Minions = {}
-    for _, mpos in ipairs(positions) do local u = Unit:new(p, Layer1.minionId, mpos.x, mpos.y, facingDeg or 270) if u then table.insert(Layer1.boss2Minions, u) end end
-    print(string.format("[Layer1] 2号Boss仆从 %s 前向宫格已刷新 count=%d", Layer1.minionId, #Layer1.boss2Minions))
+    local ids = (Layer1.bossMinions[2] and Layer1.bossMinions[2].ids) or { "h11q","h11q","h11q","hA11","hA11" }
+    for i, mpos in ipairs(positions) do
+        local uid = ids[i] or Layer1.minionId
+        local u = Unit:new(p, uid, mpos.x, mpos.y, facingDeg or 270)
+        if u then table.insert(Layer1.boss2Minions, u) end
+    end
+    print(string.format("[Layer1] 2号Boss仆从 前向宫格已刷新 count=%d (3*h11q+2*hA11) 实际=%d", #positions, #Layer1.boss2Minions))
     return Layer1.boss2Minions
 end
 
@@ -498,6 +617,159 @@ function Layer1.clearBoss3Minions()
     for _, u in ipairs(Layer1.boss3Minions) do if u then u:destroy() end end
     local n = #Layer1.boss3Minions; Layer1.boss3Minions = {}
     print("[Layer1] 3号Boss仆从已清理 count=" .. n)
+end
+
+-- ============================================================
+-- 刷怪点（2026-08-25 调整后）
+-- 中心 -12880.6,-11384.0 6单位：上行3 h11q / 中行2 hA11 / 下行1 h00p
+-- ============================================================
+function Layer1.spawnMobSpawn(cx, cy, spacing)
+    cx = cx or Layer1.mobSpawnPos.x; cy = cy or Layer1.mobSpawnPos.y; spacing = spacing or Layer1.mobSpawnPos.spacing or 90
+    local positions = Layer1.calcMobSpawnGrid(cx, cy, spacing)
+    local p = getEnemyPlayer()
+    -- 清理旧的
+    Layer1.clearMobSpawn()
+    Layer1.mobSpawnUnits = {}
+    for _, pos in ipairs(positions) do
+        local uid = pos.id or "h11q"
+        local u = Unit:new(p, uid, pos.x, pos.y, 270)
+        if u then table.insert(Layer1.mobSpawnUnits, u) end
+    end
+    print(string.format("[Layer1] 刷怪点 已创建 中心%.1f,%.1f 间隔%d 上行3*h11q(y+90) 中行2*hA11(y) 下行1*h00p(y-90) count=%d", cx, cy, spacing, #Layer1.mobSpawnUnits))
+    return Layer1.mobSpawnUnits
+end
+
+function Layer1.clearMobSpawn()
+    if not Layer1.mobSpawnUnits then Layer1.mobSpawnUnits = {} return end
+    for _, u in ipairs(Layer1.mobSpawnUnits) do if u then u:destroy() end end
+    local n = #Layer1.mobSpawnUnits
+    Layer1.mobSpawnUnits = {}
+    if n > 0 then print("[Layer1] 刷怪点1已清理 count=" .. n) end
+end
+
+function Layer1.createMobSpawn()
+    return Layer1.spawnMobSpawn()
+end
+
+function Layer1.destroyMobSpawn()
+    Layer1.clearMobSpawn()
+end
+
+-- 刷怪点2
+function Layer1.spawnMobSpawn2(cx, cy, spacing)
+    cx = cx or Layer1.mobSpawnPos2.x; cy = cy or Layer1.mobSpawnPos2.y; spacing = spacing or Layer1.mobSpawnPos2.spacing or 90
+    local positions = Layer1.calcMobSpawnGrid2(cx, cy, spacing)
+    local p = getEnemyPlayer()
+    Layer1.clearMobSpawn2()
+    Layer1.mobSpawnUnits2 = {}
+    for _, pos in ipairs(positions) do
+        local uid = pos.id or "nl3r"
+        local u = Unit:new(p, uid, pos.x, pos.y, 270)
+        if u then table.insert(Layer1.mobSpawnUnits2, u) end
+    end
+    print(string.format("[Layer1] 刷怪点2 已创建 中心%.1f,%.1f 间隔%d 中心nl3r 东侧3*n611 南北2*n642 count=%d", cx, cy, spacing, #Layer1.mobSpawnUnits2))
+    return Layer1.mobSpawnUnits2
+end
+
+function Layer1.clearMobSpawn2()
+    if not Layer1.mobSpawnUnits2 then Layer1.mobSpawnUnits2 = {} return end
+    for _, u in ipairs(Layer1.mobSpawnUnits2) do if u then u:destroy() end end
+    local n = #Layer1.mobSpawnUnits2
+    Layer1.mobSpawnUnits2 = {}
+    if n > 0 then print("[Layer1] 刷怪点2已清理 count=" .. n) end
+end
+
+function Layer1.createMobSpawn2()
+    return Layer1.spawnMobSpawn2()
+end
+
+function Layer1.destroyMobSpawn2()
+    Layer1.clearMobSpawn2()
+end
+
+-- 刷怪点3
+function Layer1.spawnMobSpawn3(cx, cy, spacing)
+    cx = cx or Layer1.mobSpawnPos3.x; cy = cy or Layer1.mobSpawnPos3.y; spacing = spacing or Layer1.mobSpawnPos3.spacing or 90
+    local positions = Layer1.calcMobSpawnGrid3(cx, cy, spacing)
+    local p = getEnemyPlayer()
+    Layer1.clearMobSpawn3()
+    Layer1.mobSpawnUnits3 = {}
+    for _, pos in ipairs(positions) do
+        local uid = pos.id or "hlc4"
+        local u = Unit:new(p, uid, pos.x, pos.y, 270)
+        if u then table.insert(Layer1.mobSpawnUnits3, u) end
+    end
+    print(string.format("[Layer1] 刷怪点3 已创建 中心%.1f,%.1f 间隔%d 两边2*hlc4 count=%d", cx, cy, spacing, #Layer1.mobSpawnUnits3))
+    return Layer1.mobSpawnUnits3
+end
+
+function Layer1.clearMobSpawn3()
+    if not Layer1.mobSpawnUnits3 then Layer1.mobSpawnUnits3 = {} return end
+    for _, u in ipairs(Layer1.mobSpawnUnits3) do if u then u:destroy() end end
+    local n = #Layer1.mobSpawnUnits3
+    Layer1.mobSpawnUnits3 = {}
+    if n > 0 then print("[Layer1] 刷怪点3已清理 count=" .. n) end
+end
+
+function Layer1.createMobSpawn3()
+    return Layer1.spawnMobSpawn3()
+end
+
+function Layer1.destroyMobSpawn3()
+    Layer1.clearMobSpawn3()
+end
+
+-- 刷怪点4
+function Layer1.spawnMobSpawn4(cx, cy, spacing)
+    cx = cx or Layer1.mobSpawnPos4.x; cy = cy or Layer1.mobSpawnPos4.y; spacing = spacing or Layer1.mobSpawnPos4.spacing or 90
+    local positions = Layer1.calcMobSpawnGrid4(cx, cy, spacing)
+    local p = getEnemyPlayer()
+    Layer1.clearMobSpawn4()
+    Layer1.mobSpawnUnits4 = {}
+    for _, pos in ipairs(positions) do
+        local uid = pos.id or "h11q"
+        local u = Unit:new(p, uid, pos.x, pos.y, 270)
+        if u then table.insert(Layer1.mobSpawnUnits4, u) end
+    end
+    print(string.format("[Layer1] 刷怪点4 已创建 中心%.1f,%.1f 间隔%d 左右2*h11q count=%d", cx, cy, spacing, #Layer1.mobSpawnUnits4))
+    return Layer1.mobSpawnUnits4
+end
+
+function Layer1.clearMobSpawn4()
+    if not Layer1.mobSpawnUnits4 then Layer1.mobSpawnUnits4 = {} return end
+    for _, u in ipairs(Layer1.mobSpawnUnits4) do if u then u:destroy() end end
+    local n = #Layer1.mobSpawnUnits4
+    Layer1.mobSpawnUnits4 = {}
+    if n > 0 then print("[Layer1] 刷怪点4已清理 count=" .. n) end
+end
+
+function Layer1.createMobSpawn4()
+    return Layer1.spawnMobSpawn4()
+end
+
+function Layer1.destroyMobSpawn4()
+    Layer1.clearMobSpawn4()
+end
+
+function Layer1.spawnAllMobSpawns()
+    Layer1.spawnMobSpawn()
+    Layer1.spawnMobSpawn2()
+    Layer1.spawnMobSpawn3()
+    Layer1.spawnMobSpawn4()
+end
+
+function Layer1.clearAllMobSpawns()
+    Layer1.clearMobSpawn()
+    Layer1.clearMobSpawn2()
+    Layer1.clearMobSpawn3()
+    Layer1.clearMobSpawn4()
+end
+
+function Layer1.destroyAllMobSpawns()
+    Layer1.destroyMobSpawn()
+    Layer1.destroyMobSpawn2()
+    Layer1.destroyMobSpawn3()
+    Layer1.destroyMobSpawn4()
 end
 
 -- 兼容旧接口：仅创建1号（分阶段后2/3号不再随start创建）
@@ -738,8 +1010,16 @@ function Layer1.start()
     -- 初始阶段仅1号Boss，避免远程隔墙打2/3号
     Layer1.createBoss1()
     Layer1.spawnBoss1Minions(9)
+    -- 刷怪点1 -12880.6,-11384.0 上行y+90 3*h11q 中行y 两边hA11 下行y-90 1*h00p
+    Layer1.spawnMobSpawn()
+    -- 刷怪点2 -11990.7,-12169.0 中心nl3r 东侧3*n611 南北2*n642
+    Layer1.spawnMobSpawn2()
+    -- 刷怪点3 -12171.7,-13688.3 两边各1个 hlc4
+    Layer1.spawnMobSpawn3()
+    -- 刷怪点4 -11148.1,-12564.9 左右各1个 h11q
+    Layer1.spawnMobSpawn4()
     registerLayerEvents()
-    print("[Layer1] 初始阶段完成：仅1号Boss h31v +仆从已创建，2号hqR6/3号h01e待击杀后创建")
+    print("[Layer1] 初始阶段完成：仅1号Boss h31v +仆从已创建 +刷怪点1/2各6单位+刷怪点3 2*hlc4+刷怪点4 2*h11q，2号hqR6/3号h01e待击杀后创建")
 end
 
 function Layer1.shutdown()
@@ -759,6 +1039,7 @@ function Layer1.shutdown()
     if Layer1.campTimer then Layer1.campTimer:destroy(); Layer1.campTimer = nil end
     Layer1.destroyCamps()
     Layer1.destroyBosses()
+    Layer1.destroyAllMobSpawns()
     Layer1.destroyWalls()
     print("[Layer1] 已关闭移除，关卡1不再复用")
 end
