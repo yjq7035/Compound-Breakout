@@ -150,6 +150,7 @@ Layer1.boss2Minions = {}
 Layer1.boss3Minions = {}
 Layer1.bossUnits = {} -- [1..3] = Unit
 Layer1.bossStage = 1 -- 1=仅1号已创建 2=2号已创建 3=3号已创建
+Layer1.boss1ChaseTimer = nil -- 1号Boss死后仆从追击计时器
 Layer1.mobSpawnCenter = Layer1.mobSpawnPos -- 别名兼容
 Layer1.mobSpawnCenter2 = Layer1.mobSpawnPos2
 Layer1.mobSpawnCenter3 = Layer1.mobSpawnPos3
@@ -555,9 +556,97 @@ function Layer1.spawnBoss1Minions(count, spacing)
 end
 
 function Layer1.clearBoss1Minions()
+    if Layer1.boss1ChaseTimer then Layer1.boss1ChaseTimer:destroy(); Layer1.boss1ChaseTimer = nil end
     for _, u in ipairs(Layer1.boss1Minions) do if u then u:destroy() end end
     local n = #Layer1.boss1Minions; Layer1.boss1Minions = {}
     print("[Layer1] 1号Boss仆从已清理 count=" .. n)
+end
+
+-- 1号Boss死亡时：存活仆从转为追击玩家（扩大索敌 + 攻击最近英雄），不再直接删除
+function Layer1.activateBoss1MinionsChase()
+    -- 清理已死亡的句柄，统计存活
+    local alive = {}
+    for _, u in ipairs(Layer1.boss1Minions) do
+        if isUnitAlive(u) then table.insert(alive, u) end
+    end
+    if #alive == 0 then
+        print("[Layer1] 1号Boss仆从无存活，无需追击")
+        Layer1.boss1Minions = {}
+        return 0
+    end
+
+    local function findNearestHero(x, y)
+        local best, bestDist = nil, 1e9
+        for pid = 0, 3 do
+            local p = Player:new(pid)
+            if p:isPlaying() and p:isUser() then
+                local g = cj.CreateGroup()
+                cj.GroupEnumUnitsOfPlayer(g, p._handle, nil)
+                local u = cj.FirstOfGroup(g)
+                while u ~= nil do
+                    if cj.IsUnitType(u, UNIT_TYPE_HERO) and not cj.IsUnitType(u, UNIT_TYPE_DEAD) then
+                        local ok, life = pcall(cj.GetUnitState, u, UNIT_STATE_LIFE)
+                        if ok and life > 0.405 then
+                            local d = ((cj.GetUnitX(u) - x) ^ 2 + (cj.GetUnitY(u) - y) ^ 2) ^ 0.5
+                            if d < bestDist then bestDist = d; best = u end
+                        elseif not ok then
+                            local d = ((cj.GetUnitX(u) - x) ^ 2 + (cj.GetUnitY(u) - y) ^ 2) ^ 0.5
+                            if d < bestDist then bestDist = d; best = u end
+                        end
+                    end
+                    cj.GroupRemoveUnit(g, u)
+                    u = cj.FirstOfGroup(g)
+                end
+                cj.DestroyGroup(g)
+            end
+        end
+        return best
+    end
+
+    local function issueChase()
+        local ordered = 0
+        local stillAlive = 0
+        for _, u in ipairs(Layer1.boss1Minions) do
+            if isUnitAlive(u) then
+                stillAlive = stillAlive + 1
+                local h = u._handle
+                if h then
+                    -- 扩大主动攻击范围
+                    pcall(cj.SetUnitAcquireRange, h, 2500)
+                    if u.setAcquireRange then pcall(function() u:setAcquireRange(2500) end) end
+                    pcall(cj.PauseUnit, h, false)
+                    local hx, hy = cj.GetUnitX(h), cj.GetUnitY(h)
+                    local target = findNearestHero(hx, hy)
+                    if target then
+                        cj.IssueTargetOrder(h, "attack", target)
+                    else
+                        local rev = Layer1.revivePos or { x = -11787.8, y = -14967.1 }
+                        cj.IssuePointOrder(h, "attack", rev.x, rev.y)
+                    end
+                    ordered = ordered + 1
+                end
+            end
+        end
+        return ordered, stillAlive
+    end
+
+    local ordered = issueChase()
+    print(string.format("[Layer1] 1号Boss仆从追击已激活 存活%d/%d 已下达追击指令%d (索敌2500)", #alive, #Layer1.boss1Minions, ordered))
+
+    -- 周期性重新索敌（每3秒），防止丢失目标后发呆；无存活时自动停止
+    if Layer1.boss1ChaseTimer then Layer1.boss1ChaseTimer:destroy() end
+    Layer1.boss1ChaseTimer = Timer:new(3, true, function()
+        local _, stillAlive = issueChase()
+        if stillAlive == 0 then
+            if Layer1.boss1ChaseTimer then Layer1.boss1ChaseTimer:destroy(); Layer1.boss1ChaseTimer = nil end
+            print("[Layer1] 1号Boss追击仆从已全部死亡，停止追击计时器")
+        end
+    end, true)
+
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", string.format("1号Boss仆从 %d个 进入追击状态！", #alive), SystemMessage.COLOR_WARN}}, 3.0)
+    end
+    return #alive
 end
 
 -- 2号Boss：仅在1号击杀后创建，避免隔墙被远程命中
@@ -874,7 +963,7 @@ local function registerLayerEvents()
             if SystemMessage and SystemMessage.send then
                 SystemMessage.send({{"STR", "1号Boss已击杀", SystemMessage.COLOR_SUCCESS}}, 3.0)
             end
-            Layer1.clearBoss1Minions()
+            Layer1.activateBoss1MinionsChase()
             -- 分阶段：1号击杀后才创建2号Boss及其仆从，避免隔墙被远程命中
             if not Layer1.bossUnits[2] or not isUnitAlive(Layer1.bossUnits[2]) then
                 Layer1.createBoss2()
@@ -1037,6 +1126,7 @@ function Layer1.shutdown()
     Layer1.enteredPlayers = {}
     -- 停止唯一营地刷新计时器
     if Layer1.campTimer then Layer1.campTimer:destroy(); Layer1.campTimer = nil end
+    if Layer1.boss1ChaseTimer then Layer1.boss1ChaseTimer:destroy(); Layer1.boss1ChaseTimer = nil end
     Layer1.destroyCamps()
     Layer1.destroyBosses()
     Layer1.destroyAllMobSpawns()
