@@ -151,6 +151,7 @@ Layer1.boss3Minions = {}
 Layer1.bossUnits = {} -- [1..3] = Unit
 Layer1.bossStage = 1 -- 1=仅1号已创建 2=2号已创建 3=3号已创建
 Layer1.boss1ChaseTimer = nil -- 1号Boss死后仆从追击计时器
+Layer1.bossKilled = {} -- [1..3] = true 已击杀去重，防止同一Boss死亡回调触发两次
 Layer1.mobSpawnCenter = Layer1.mobSpawnPos -- 别名兼容
 Layer1.mobSpawnCenter2 = Layer1.mobSpawnPos2
 Layer1.mobSpawnCenter3 = Layer1.mobSpawnPos3
@@ -944,7 +945,7 @@ local function registerLayerEvents()
             return
         end
 
-        -- Boss击杀：按Boss坐标距离判定是几号
+        -- Boss击杀：按Boss坐标距离判定是几号 + 必须匹配对应bossId，防止仆从/野怪在Boss附近死亡误触发
         local killerBossIdx = nil
         for i, bpos in ipairs(Layer1.bosses) do
             if distance(dx, dy, bpos.x, bpos.y) < 500 then killerBossIdx = i; break end
@@ -956,8 +957,22 @@ local function registerLayerEvents()
             end
             if not killerBossIdx and Layer1.boss1Unit and Layer1.boss1Unit._handle == dying then killerBossIdx = 1 end
         end
+        -- 严格校验：死亡单位类型必须等于对应BossId，否则视为误判（hbaj仆从在Boss点附近死亡会进距离500）
+        if killerBossIdx then
+            local expectedId = (killerBossIdx == 1 and Layer1.boss1Id) or (killerBossIdx == 2 and Layer1.boss2Id) or (killerBossIdx == 3 and Layer1.boss3Id) or nil
+            if expectedId and tidStr ~= expectedId then
+                print(string.format("[Layer1] 忽略Boss误判 idx=%d 期望%s 实际%s at %.1f,%.1f", killerBossIdx, expectedId, tidStr, dx, dy))
+                killerBossIdx = nil
+            end
+        end
+        -- 去重：同一Boss已击杀过则不再执行，防止引擎/重复注册导致触发两次
+        if killerBossIdx and Layer1.bossKilled[killerBossIdx] then
+            print(string.format("[Layer1] Boss%d 已击杀过，忽略重复触发 tid=%s", killerBossIdx, tidStr))
+            return
+        end
 
         if killerBossIdx == 1 then
+            Layer1.bossKilled[1] = true
             Layer1.removeWallNear(Layer1.triggerWalls.boss1.tx, Layer1.triggerWalls.boss1.ty, "1号Boss击杀")
             print("[Layer1] 1号Boss已击杀，竖墙2已移除")
             if SystemMessage and SystemMessage.send then
@@ -976,6 +991,7 @@ local function registerLayerEvents()
                 end
             end
         elseif killerBossIdx == 2 then
+            Layer1.bossKilled[2] = true
             Layer1.removeWallNear(Layer1.triggerWalls.boss2.tx, Layer1.triggerWalls.boss2.ty, "2号Boss击杀")
             print("[Layer1] 2号Boss已击杀，竖墙3已移除")
             if SystemMessage and SystemMessage.send then
@@ -994,6 +1010,7 @@ local function registerLayerEvents()
                 end
             end
         elseif killerBossIdx == 3 then
+            Layer1.bossKilled[3] = true
             Layer1.removeWallNear(Layer1.triggerWalls.boss3.tx, Layer1.triggerWalls.boss3.ty, "3号Boss击杀")
             print("[Layer1] 3号Boss已击杀，竖墙4已移除")
             if SystemMessage and SystemMessage.send then
@@ -1093,6 +1110,7 @@ function Layer1.start()
     if Layer1.started then print("[Layer1] 已启动，跳过") return end
     Layer1.started = true; Layer1.finished = false
     Layer1.bossStage = 1
+    Layer1.bossKilled = {}
     print("[Layer1] 启动关卡1（分阶段）")
     Layer1.createWalls() -- 5墙保持不变
     Layer1.createCamps()
