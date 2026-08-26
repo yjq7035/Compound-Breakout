@@ -615,7 +615,7 @@ function Layer3.registerLayer3DeathHandler()
 end
 
 function Layer3.unregisterLayer3DeathHandler()
-    if deathListenerAdded then
+    if Layer3.deathListenerAdded then
         -- 取消事件监听（简单方案：在 shutdown 时忽略）
         print("[Layer3] 注销关卡死亡处理")
     end
