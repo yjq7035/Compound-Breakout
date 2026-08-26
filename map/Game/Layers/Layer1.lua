@@ -89,6 +89,8 @@ Layer1.camps = {
 Layer1Camps = Layer1.camps
 Layer1CampPos = Layer1.camps
 
+--123
+
 Layer1.bosses = {
     { x = -14868.4, y = -10349.3, name = "1号Boss" },
     { x = -10250.5, y = -14186.0, name = "2号Boss" },

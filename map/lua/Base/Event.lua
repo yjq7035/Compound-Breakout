@@ -66,6 +66,9 @@ _mt.__index = function(self, key)
     if (eventVal ~= nil) then return eventVal end
 
     if (key == "unit") then
+        -- 矩形 Region 进入事件由 newRect 注入 _unit（GetEnteringUnit），优先返回
+        local u = rawget(self, "_unit")
+        if u ~= nil then return u end
         return cj.GetTriggerUnit()
     elseif (key == "killingUnit") then
         return cj.GetKillingUnit()
@@ -532,25 +535,36 @@ end
 --- 存储结构：handleId -> { rect = userdata, region = userdata, trigger = userdata, actions = {func, ..} }
 local _rectEvents = {}
 
+--- 内部：解包 Rect（兼容 Rect 包装对象与原生 jrect handle）
+local function _unwrapRect(rect)
+    if rect == nil then return nil end
+    if type(rect) == "table" and rect._handle ~= nil then
+        return rect._handle
+    end
+    return rect
+end
+
 --- 任意单位进入矩形事件
----@param rect Rect
+---@param rect Rect|userdata 矩形（支持 Rect 对象或原生 handle）
 ---@param callback fun(Event) 回调函数（self 为 Event 对象）
 ---@return Event
 function Event:newRect(rect, callback)
     if rect == nil then return end
-    local key = cj.GetHandleId(rect)
+    local rectHandle = _unwrapRect(rect)
+    if rectHandle == nil then return end
+    local key = cj.GetHandleId(rectHandle)
     
     local entry = _rectEvents[key]
     if not entry then
         local region = cj.CreateRegion()
-        cj.RegionAddRect(region, rect)
+        cj.RegionAddRect(region, rectHandle)
         
         local trig = cj.CreateTrigger()
         cj.TriggerRegisterEnterRegion(trig, region, nil)
         
         local obj = {
             _trigger = trig,
-            _rect = rect,
+            _rect = rectHandle,
             _region = region,
             _unit = nil,
         }
@@ -565,7 +579,7 @@ function Event:newRect(rect, callback)
             end
         end)
         
-        entry = { rect = rect, region = region, trigger = trig, actions = {}, obj = obj }
+        entry = { rect = rectHandle, region = region, trigger = trig, actions = {}, obj = obj }
         _rectEvents[key] = entry
     end
     
@@ -577,11 +591,13 @@ function Event:newRect(rect, callback)
 end
 
 --- 移除矩形事件的某个回调
----@param rect Rect
+---@param rect Rect|userdata
 ---@param callback function 要移除的回调函数
 function Event:offRect(rect, callback)
     if rect == nil then return end
-    local key = cj.GetHandleId(rect)
+    local rectHandle = _unwrapRect(rect)
+    if rectHandle == nil then return end
+    local key = cj.GetHandleId(rectHandle)
     local entry = _rectEvents[key]
     if not entry then return end
     for i, cb in ipairs(entry.actions) do
@@ -593,15 +609,26 @@ function Event:offRect(rect, callback)
 end
 
 --- 销毁矩形事件（销毁触发器和区域）
----@param rect Rect
+---@param rect Rect|userdata
 function Event:destroyRect(rect)
     if rect == nil then return end
-    local key = cj.GetHandleId(rect)
+    local rectHandle = _unwrapRect(rect)
+    if rectHandle == nil then return end
+    local key = cj.GetHandleId(rectHandle)
     local entry = _rectEvents[key]
     if not entry then return end
     cj.DestroyTrigger(entry.trigger)
-    cj.RemoveRectFromRegion(entry.region, rect)
-    cj.DestroyRegion(entry.region)
+    -- 兼容：JassCommon 仅暴露 RegionClearRect / RemoveRegion，无 RemoveRectFromRegion / DestroyRegion
+    if cj.RegionClearRect then
+        pcall(cj.RegionClearRect, entry.region, rectHandle)
+    elseif cj.RemoveRectFromRegion then
+        pcall(cj.RemoveRectFromRegion, entry.region, rectHandle)
+    end
+    if cj.RemoveRegion then
+        pcall(cj.RemoveRegion, entry.region)
+    elseif cj.DestroyRegion then
+        pcall(cj.DestroyRegion, entry.region)
+    end
     _rectEvents[key] = nil
 end
 

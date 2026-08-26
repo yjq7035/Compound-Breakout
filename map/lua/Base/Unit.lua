@@ -610,7 +610,8 @@ end
 ---@return Unit
 function Unit:setInvulnerable(flag)
     if (self._handle ~= nil) then
-        cj.SetUnitInvulnerable(self._handle, (flag ~= nil) and flag or true)
+        if flag == nil then flag = true end
+        cj.SetUnitInvulnerable(self._handle, flag)
     end
     return self
 end
@@ -620,7 +621,8 @@ end
 ---@return Unit
 function Unit:setPathing(flag)
     if (self._handle ~= nil) then
-        cj.SetUnitPathing(self._handle, (flag ~= nil) and flag or true)
+        if flag == nil then flag = true end
+        cj.SetUnitPathing(self._handle, flag)
     end
     return self
 end
@@ -1830,7 +1832,8 @@ end
 ---@return Unit
 function Unit:silence(flag)
     if (self._handle ~= nil) then
-        cdz.DzUnitSilence(self._handle, (flag ~= nil) and flag or true)
+        if flag == nil then flag = true end
+        cdz.DzUnitSilence(self._handle, flag)
     end
     return self
 end
@@ -1850,7 +1853,8 @@ end
 ---@return Unit
 function Unit:setCanSelect(flag)
     if (self._handle ~= nil) then
-        cdz.DzUnitSetCanSelect(self._handle, (flag ~= nil) and flag or true)
+        if flag == nil then flag = true end
+        cdz.DzUnitSetCanSelect(self._handle, flag)
     end
     return self
 end
@@ -1860,7 +1864,8 @@ end
 ---@return Unit
 function Unit:setTargetable(flag)
     if (self._handle ~= nil) then
-        cdz.DzUnitSetTargetable(self._handle, (flag ~= nil) and flag or true)
+        if flag == nil then flag = true end
+        cdz.DzUnitSetTargetable(self._handle, flag)
     end
     return self
 end
@@ -1870,7 +1875,8 @@ end
 ---@return Unit
 function Unit:setHitIgnore(flag)
     if (self._handle ~= nil) then
-        cdz.DzSetUnitHitIgnore(self._handle, (flag ~= nil) and flag or true)
+        if flag == nil then flag = true end
+        cdz.DzSetUnitHitIgnore(self._handle, flag)
     end
     return self
 end
@@ -1890,7 +1896,8 @@ end
 ---@return Unit
 function Unit:disableAttack(flag)
     if (self._handle ~= nil) then
-        cdz.DzUnitDisableAttack(self._handle, (flag ~= nil) and flag or true)
+        if flag == nil then flag = true end
+        cdz.DzUnitDisableAttack(self._handle, flag)
     end
     return self
 end
@@ -1900,7 +1907,8 @@ end
 ---@return Unit
 function Unit:disableInventory(flag)
     if (self._handle ~= nil) then
-        cdz.DzUnitDisableInventory(self._handle, (flag ~= nil) and flag or true)
+        if flag == nil then flag = true end
+        cdz.DzUnitDisableInventory(self._handle, flag)
     end
     return self
 end
@@ -2013,7 +2021,8 @@ end
 ---@return Unit
 function Unit:select(flag)
     if (self._handle ~= nil) then
-        cj.SelectUnit(self._handle, (flag ~= nil) and flag or true)
+        if flag == nil then flag = true end
+        cj.SelectUnit(self._handle, flag)
     end
     return self
 end
@@ -2032,7 +2041,8 @@ end
 ---@return Unit
 function Unit:shareVisionTo(pl, share)
     if (self._handle ~= nil) then
-        cj.UnitShareVision(self._handle, resolveHandle(pl), (share ~= nil) and share or true)
+        if share == nil then share = true end
+        cj.UnitShareVision(self._handle, resolveHandle(pl), share)
     end
     return self
 end
@@ -2138,7 +2148,8 @@ end
 ---@return Unit
 function Unit:enableMinimapIcon(enable)
     if (self._handle ~= nil) then
-        cdz.DzWidgetSetMinimapIconEnable(self._handle, (enable ~= nil) and enable or true)
+        if enable == nil then enable = true end
+        cdz.DzWidgetSetMinimapIconEnable(self._handle, enable)
     end
     return self
 end
@@ -2148,7 +2159,8 @@ end
 ---@return Unit
 function Unit:setUsesAltIcon(flag)
     if (self._handle ~= nil) then
-        cj.UnitSetUsesAltIcon(self._handle, (flag ~= nil) and flag or true)
+        if flag == nil then flag = true end
+        cj.UnitSetUsesAltIcon(self._handle, flag)
     end
     return self
 end
