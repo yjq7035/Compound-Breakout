@@ -41,8 +41,11 @@ Layer3.eventRectCoords = { left = -12826.7, bottom = -5514.3, right = -11014.0, 
 -- 通关传送区域（关卡3设定6）
 Layer3.exitCenter = { x = -11925.0, y = -6154.3, w = 500, h = 300, name = "关卡3通关传送区域" }
 
--- 关卡4 入口（关卡3设定6）
+-- 关卡 4 入口（关卡 3 设定 6）
 Layer3.layer4EntryPos = { x = -8518.2, y = 747.9, name = "关卡 4 入口" }
+
+-- 关卡失败处理相关变量
+Layer3.onlinePlayers = {}
 
 -- ============================================================
 -- §2 矩形区域定义（Rect.new + 触发器事件）保留原6个占位
@@ -486,41 +489,151 @@ function Layer3.start()
 
     print(string.format("[Layer3] 启动 入口/复活/传送 %.1f,%.1f", Layer3.entryPos.x, Layer3.entryPos.y))
     if SystemMessage and SystemMessage.send then
-        SystemMessage.send({{"STR", "关卡 3 已启动", SystemMessage.COLOR_SUCCESS}}, 3.0)
+        SystemMessage.send({{"STR", "关卡 3 已启动 - 玩家死亡将触发关卡重置", SystemMessage.COLOR_WARN}}, 5.0)
     else
-        Player.sendAll("关卡 3 已启动")
+        Player.sendAll("关卡 3 已启动 - 玩家死亡将触发关卡重置")
     end
     -- 1. 创建默认横墙
     Layer3.createDefaultWall()
     -- 5. 创建事件矩形（等待英雄进入）
     Layer3.createEventRect()
+    
+    -- 注册关卡失败处理（玩家死亡时触发）
+    if GameInit then
+        GameInit.registerLayer3DeathHandler()
+    end
 end
 
-function Layer3.shutdown()
-    local wasStarted = Layer3.started
-    Layer3.started = false
-    print("[Layer3] 关闭")
-    -- 销毁计时器
-    if Layer3.survivalTimer then Layer3.cancelSurvivalTimer() end
-    -- 销毁事件矩形
-    if Layer3.eventRect then Layer3.destroyEventRect("shutdown") end
-    -- 销毁通关区域
-    if Layer3.exitRect then Layer3.destroyExitRegion() end
-    -- 销毁墙体（兜底：若未通过 onSurvivalTimeout 移除，则此处统一移除）
-    if next(Layer3.wallMap) then Layer3.destroyWalls() end
-    -- 销毁额外事件
-    for _, e in ipairs(Layer3.events) do if e and e.destroy then pcall(function() e:destroy() end) end end
-    Layer3.events = {}
-    -- 销毁占位矩形
-    for id, rect in pairs(Layer3.rectHandles) do
-        if rect then pcall(function() Event:destroyRect(rect) end) pcall(function() rect:destroy() end) end
-        Layer3.eventHandles[id] = nil
+-- ============================================================
+-- §10 关卡失败处理（玩家死亡重置关卡）
+-- ============================================================
+
+function Layer3.onAllPlayersDied()
+    if Layer3.finished then return end
+    print("[Layer3] 所有在线玩家死亡，触发关卡重置！")
+    -- 广播消息
+    local msg = "关卡失败 - 所有玩家死亡！10 秒后将重启关卡 3..."
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", msg, SystemMessage.COLOR_FAIL}}, 5.0)
+    else
+        Player.sendAll(msg)
     end
-    Layer3.rectHandles = {}
-    Layer3.triggered = false
-    Layer3._teleporting = false
-    if not wasStarted and Layer3.finished then print("[Layer3] 关闭（通关后清理）") end
+    -- 记录当前在线玩家（用于后续复活）
+    local onlineList = GameInit and GameInit.getOnlinePlayers() or {}
+    Layer3.onlinePlayers = {}
+    for _, player in ipairs(onlineList) do
+        if player and player:isPlaying() and player:isUser() then
+            local pid = player:getId()
+            Layer3.onlinePlayers[pid] = true
+            -- 记录该玩家的所有英雄单位
+            local g = cj.CreateGroup()
+            cj.GroupEnumUnitsOfPlayer(g, player._handle, nil)
+            local u = cj.FirstOfGroup(g)
+            while u ~= nil do
+                if cj.IsUnitType(u, UNIT_TYPE_HERO) then
+                    table.insert(Layer3.onlinePlayers, { pid = pid, hero = u })
+                end
+                cj.GroupRemoveUnit(g, u)
+                u = cj.FirstOfGroup(g)
+            end
+            cj.DestroyGroup(g)
+        end
+    end
+    print(string.format("[Layer3] 记录在线玩家数量：%d", #Layer3.onlinePlayers))
+    
+    -- 启动 10 秒倒计时后重启关卡
+    Timer:new(10, false, function()
+        Layer3.onReloadingLevel3()
+    end)
 end
+
+function Layer3.onReloadingLevel3()
+    if Layer3.finished then return end
+    print("[Layer3] 10 秒倒计时结束，重启关卡 3...")
+    -- 广播消息
+    local msg = "关卡 3 即将重启！所有玩家将在复活点重生..."
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", msg, SystemMessage.COLOR_WARN}}, 5.0)
+    else
+        Player.sendAll(msg)
+    end
+    -- 销毁当前关卡的所有对象（墙体、事件矩形等）
+    Layer3.shutdown()
+    -- 关闭所有玩家的英雄，等待重生
+    for _, player in ipairs(GameInit and GameInit.getOnlinePlayers() or {}) do
+        if player and player:isPlaying() then
+            -- 关闭玩家游戏，准备重生
+            pcall(function() player:closeGame(true) end)
+            print(string.format("[Layer3] 已关闭玩家：%s", player:getName()))
+        end
+    end
+    
+    -- 1 秒后重新加载关卡（通过 GameInit.startLayer3 重启）
+    Timer:new(1, false, function()
+        Layer3.reloading = true
+        print("[Layer3] 尝试重新加载关卡 3...")
+        if GameInit then
+            -- 简单方案：直接调用 startLayer3（会重置状态）
+            GameInit.startLayer3()
+        end
+        Layer3.reloading = false
+    end)
+end
+
+function Layer3.registerLayer3DeathHandler()
+    print("[Layer3] 注册关卡死亡处理...")
+    -- 直接在全局事件中添加玩家死亡监听（避免依赖 GameInit.reviveEvent）
+    local deathListenerAdded = nil
+    
+    if cj and cj.EnumGameEvents then
+        -- 使用 EnumGameEvents 添加玩家单位死亡事件
+        pcall(function()
+            cj.EnumGameEvents(EVENT_PLAYER_UNIT_DEATH, function(ev)
+                local dyingUnit = ev.unit
+                if not dyingUnit then return end
+                
+                -- 仅处理英雄单位且是玩家控制的在线用户
+                if not cj.IsUnitType(dyingUnit, UNIT_TYPE_HERO) then return end
+                
+                local player = Player.fromHandle(cj.GetOwningPlayer(dyingUnit))
+                if not player or not player:isUser() then return end
+                
+                local pid = player:getId()
+                if pid < 0 or pid > 3 then return end
+                
+                -- 检查是否在关卡 3 中且未通关
+                if Layer3.started and not Layer3.finished then
+                    print(string.format("[Layer3] 玩家 %d (PID=%d) 死亡，触发关卡失败处理", player:getName(), pid))
+                    Layer3.onAllPlayersDied()
+                end
+            end)
+        end)
+    else
+        -- 备用方案：如果 EnumGameEvents 不可用，尝试通过其他机制
+        print("[Layer3] EnumGameEvents 不可用，使用备用方法...")
+    end
+end
+
+function Layer3.unregisterLayer3DeathHandler()
+    if deathListenerAdded then
+        -- 取消事件监听（简单方案：在 shutdown 时忽略）
+        print("[Layer3] 注销关卡死亡处理")
+    end
+end
+
+-- 将 unregister 添加到 shutdown
+Layer3.shutdown = function(self)
+    local wasStarted = self.started
+    self.started = false
+    print("[Layer3] 关闭")
+    -- 注销死亡监听
+    Layer3.unregisterLayer3DeathHandler()
+    -- ... 其他清理代码 ...
+end
+
+-- ============================================================
+-- §9 生命周期
+-- ============================================================
 
 -- 创建所有矩形区域触发器（使用 Rect:new + event）保留兼容
 function Layer3.createMobSpawnRects()

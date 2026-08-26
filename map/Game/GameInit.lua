@@ -249,9 +249,28 @@ function GameInit.giveInitialGold()
     print("[GameInit] 初始金币200已发放 count=" .. #list)
 end
 
---- 注册英雄死亡 20秒后复活（当前关卡复活点）- 真计时器+计时器窗口+中央消息
+--- 注册英雄死亡 20 秒后复活（当前关卡复活点）- 真计时器 + 计时器窗口 + 中央消息
 function GameInit.registerReviveEvent()
     if GameInit.reviveEvent then return end
+    
+    -- 检查是否处于关卡 3 中，如果是则禁用自动复活（由关卡失败处理接管）
+    local isLayer3Active = false
+    if GameInit and GameInit.currentLayer == 3 then
+        -- 简单判断：如果 Layer3 模块已加载且 started，说明在关卡 3 激活状态
+        local Layer3Module = nil
+        pcall(function() Layer3Module = require("Game.Layers.Layer3") end)
+        if Layer3Module and Layer3Module.started then
+            isLayer3Active = true
+            print("[GameInit] 检测到处于关卡 3 中，禁用英雄自动复活功能")
+        end
+    end
+    
+    -- 在关卡 3 激活时不注册死亡事件（由 Layer3.onAllPlayersDied 接管）
+    if isLayer3Active then
+        print("[GameInit] 跳过死亡事件注册，由 Layer3 处理")
+        return
+    end
+    
     GameInit.reviveEvent = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
         local dying = ev.unit
         if not dying then return end
@@ -273,11 +292,11 @@ function GameInit.registerReviveEvent()
         end
         local playerName = owner:getName()
         if not playerName or playerName == "" then playerName = "玩家"..pid end
-        print(string.format("[GameInit] 玩家%d 英雄死亡，%d秒后复活 at %.1f,%.1f", pid, reviveSec, x, y))
+        print(string.format("[GameInit] 玩家%d 英雄死亡，%d 秒后复活 at %.1f,%.1f", pid, reviveSec, x, y))
         -- 中央系统信息：通报谁的英雄 称谓 死亡，多少秒后复活
         if SystemMessage and SystemMessage.send then
             local icon = SystemMessage.getUnitIcon(dying)
-            local msgText = string.format("%s 的 %s 死亡，%d秒后复活", playerName, heroProper, reviveSec)
+            local msgText = string.format("%s 的 %s 死亡，%d 秒后复活", playerName, heroProper, reviveSec)
             if icon and icon ~= "" then
                 SystemMessage.send({{"art", icon}, {"STR", msgText, SystemMessage.COLOR_FAIL}}, 3.0)
             else
@@ -307,7 +326,7 @@ function GameInit.registerReviveEvent()
                     end
                 end
             end
-            -- 显式销毁窗口（兜底，Timer已在_tick或destroy中处理）
+            -- 显式销毁窗口（兜底，Timer 已在_tick 或 destroy 中处理）
             if t and not t._dead then t:destroy() end
         end, nil, true, dialogText)
     end)
