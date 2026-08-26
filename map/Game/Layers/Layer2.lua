@@ -76,18 +76,18 @@ Layer2.WALL_H = "B000"
 Layer2.WALL_V = "DL84"
 
 Layer2.walls = {
-    { x = -11775.9, y = -9896.5,  id = "DL84", dir = "V", face = 0,   name = "竖墙 1"  },
-    { x = -9095,    y = -10082.8, id = "DL84", dir = "V", face = 0,   name = "竖墙 2"  },
-    { x = -9095,    y = -10855,   id = "DL84", dir = "V", face = 0,   name = "竖墙 3"  },
-    { x = -9095,    y = -11618,   id = "DL84", dir = "V", face = 0,   name = "竖墙 4"  },
-    { x = -9095,    y = -12400,   id = "DL84", dir = "V", face = 0,   name = "竖墙 5"  },
-    { x = -9095,    y = -13165,   id = "DL84", dir = "V", face = 0,   name = "竖墙 6"  },
-    { x = -9865,    y = -10855,   id = "DL84", dir = "V", face = 0,   name = "竖墙 7"  },
-    { x = -9865,    y = -11618,   id = "DL84", dir = "V", face = 0,   name = "竖墙 8"  },
-    { x = -9865,    y = -12400,   id = "DL84", dir = "V", face = 0,   name = "竖墙 9"  },
-    { x = -9865,    y = -13165,   id = "DL84", dir = "V", face = 0,   name = "竖墙 10" },
-    { x = -11224.8, y = -10484.6, id = "B000", dir = "H", face = 270, name = "横墙 1"  },
-    { x = -9490,    y = -13448,   id = "B000", dir = "H", face = 270, name = "横墙 2"  },
+    {index = 1, x = -11775.9, y = -9896.5,  id = "DL84", dir = "V", face = 0,   name = "竖墙 1"  },
+    {index = 3, x = -9095,    y = -10082.8, id = "DL84", dir = "V", face = 0,   name = "竖墙 2"  },
+    {index = 4, x = -9095,    y = -10855,   id = "DL84", dir = "V", face = 0,   name = "竖墙 3"  },
+    {index = 5, x = -9095,    y = -11618,   id = "DL84", dir = "V", face = 0,   name = "竖墙 4"  },
+    {index = 6, x = -9095,    y = -12400,   id = "DL84", dir = "V", face = 0,   name = "竖墙 5"  },
+    {index = 7, x = -9095,    y = -13165,   id = "DL84", dir = "V", face = 0,   name = "竖墙 6"  },
+    {index = 8, x = -9865,    y = -10855,   id = "DL84", dir = "V", face = 0,   name = "竖墙 7"  },
+    {index = 9, x = -9865,    y = -11618,   id = "DL84", dir = "V", face = 0,   name = "竖墙 8"  },
+    {index = 10, x = -9865,    y = -12400,   id = "DL84", dir = "V", face = 0,   name = "竖墙 9"  },
+    {index = 11, x = -9865,    y = -13165,   id = "DL84", dir = "V", face = 0,   name = "竖墙 10" },
+    {index = 2 , x = -11224.8, y = -10484.6, id = "B000", dir = "H", face = 270, name = "横墙 1"  },
+    {index = 13, x = -9490,    y = -13448,   id = "B000", dir = "H", face = 270, name = "横墙 2"  },
 }
 
 -- 运行时
@@ -210,10 +210,16 @@ local function applyEnhancedStats(u)
     -- 最大生命 +20%
     u:addState(UNIT_STATE_MAX_LIFE, math.floor(maxLife * 0.2))
 
-    -- 当前生命设为 35% 新上限
+    -- 当前生命设为 35% 新上限（需 set 而非 add，否则会在原血量上叠加）
     local newMaxLife = maxLife * 1.2
     local targetLife = newMaxLife * 0.35
-    u:addState(UNIT_STATE_LIFE, targetLife)
+    -- 优先用 setState 精确设置为目标值；若不存在则用差值 addState 兜底
+    if u.setState then
+        pcall(function() u:setState(UNIT_STATE_LIFE, targetLife) end)
+    else
+        local delta = targetLife - currentLife
+        u:addState(UNIT_STATE_LIFE, delta)
+    end
 
     -- 护甲 +20%
     if armor then
@@ -257,7 +263,7 @@ local function clearUnits(unitsKey, label)
     if n > 0 then print(string.format("[Layer2] %s已清理 count=%d", label, n)) end
 end
 
-local function activateUnits(unitsKey, label)
+local function activateUnits(unitsKey, label, tx, ty)
     local list = Layer2[unitsKey]
     if not list then return end
     
@@ -287,10 +293,30 @@ local function activateUnits(unitsKey, label)
             pcall(function() cdz.EXPauseUnit(u._handle, false) end)
         end
         
+        -- 若提供目标坐标，激活后下达攻击移动命令到触发单位位置
+        if tx and ty and u._handle then
+            -- 扩大索敌避免发呆
+            pcall(cj.SetUnitAcquireRange, u._handle, 2500)
+            if u.setAcquireRange then pcall(function() u:setAcquireRange(2500) end) end
+            -- 优先使用原生攻击移动，其次 Unit 封装
+            local ordered = false
+            if u.attack then
+                ordered = pcall(function() u:attack(tx, ty) end) and true or ordered
+            end
+            if not ordered and u.orderPoint then
+                pcall(function() u:orderPoint("attack", tx, ty) end)
+            end
+            pcall(cj.IssuePointOrder, u._handle, "attack", tx, ty)
+        end
+        
         ::continue_loop::
     end
     
-    print(string.format("[Layer2] %s 已激活 count=%d", label, #list))
+    if tx and ty then
+        print(string.format("[Layer2] %s 已激活并下达攻击移动到 %.1f,%.1f count=%d", label, tx, ty, #list))
+    else
+        print(string.format("[Layer2] %s 已激活 count=%d", label, #list))
+    end
 end
 
 -- 通用刷怪：创建前自动清理旧的，统一处理无敌/暂停/增强
@@ -561,7 +587,7 @@ function Layer2.spawnMobSpawn1(cx, cy)
 end
 function Layer2.clearMobSpawn1()   clearUnits("mobSpawn1Units", "刷怪点 1") end
 function Layer2.destroyMobSpawn1() Layer2.clearMobSpawn1() end
-function Layer2.activateMobSpawn1() activateUnits("mobSpawn1Units", "刷怪点 1") end
+function Layer2.activateMobSpawn1(tx, ty) activateUnits("mobSpawn1Units", "刷怪点 1", tx, ty) end
 
 -- 刷怪点 2
 function Layer2.spawnMobSpawn2(cx, cy)
@@ -576,7 +602,7 @@ function Layer2.spawnMobSpawn2(cx, cy)
 end
 function Layer2.clearMobSpawn2()   clearUnits("mobSpawn2Units", "刷怪点 2") end
 function Layer2.destroyMobSpawn2() Layer2.clearMobSpawn2() end
-function Layer2.activateMobSpawn2() activateUnits("mobSpawn2Units", "刷怪点 2") end
+function Layer2.activateMobSpawn2(tx, ty) activateUnits("mobSpawn2Units", "刷怪点 2", tx, ty) end
 
 -- 刷怪点 3
 function Layer2.spawnMobSpawn3(cx, cy)
@@ -591,7 +617,7 @@ function Layer2.spawnMobSpawn3(cx, cy)
 end
 function Layer2.clearMobSpawn3()   clearUnits("mobSpawn3Units", "刷怪点 3") end
 function Layer2.destroyMobSpawn3() Layer2.clearMobSpawn3() end
-function Layer2.activateMobSpawn3() activateUnits("mobSpawn3Units", "刷怪点 3") end
+function Layer2.activateMobSpawn3(tx, ty) activateUnits("mobSpawn3Units", "刷怪点 3", tx, ty) end
 
 -- 刷怪点 4
 function Layer2.spawnMobSpawn4(cx, cy)
@@ -606,7 +632,7 @@ function Layer2.spawnMobSpawn4(cx, cy)
 end
 function Layer2.clearMobSpawn4()   clearUnits("mobSpawn4Units", "刷怪点 4") end
 function Layer2.destroyMobSpawn4() Layer2.clearMobSpawn4() end
-function Layer2.activateMobSpawn4() activateUnits("mobSpawn4Units", "刷怪点 4") end
+function Layer2.activateMobSpawn4(tx, ty) activateUnits("mobSpawn4Units", "刷怪点 4", tx, ty) end
 
 -- 刷怪点 5
 function Layer2.spawnMobSpawn5(cx, cy)
@@ -621,7 +647,7 @@ function Layer2.spawnMobSpawn5(cx, cy)
 end
 function Layer2.clearMobSpawn5()   clearUnits("mobSpawn5Units", "刷怪点 5") end
 function Layer2.destroyMobSpawn5() Layer2.clearMobSpawn5() end
-function Layer2.activateMobSpawn5() activateUnits("mobSpawn5Units", "刷怪点 5") end
+function Layer2.activateMobSpawn5(tx, ty) activateUnits("mobSpawn5Units", "刷怪点 5", tx, ty) end
 
 -- 刷怪点 6
 function Layer2.spawnMobSpawn6(cx, cy)
@@ -636,7 +662,7 @@ function Layer2.spawnMobSpawn6(cx, cy)
 end
 function Layer2.clearMobSpawn6()   clearUnits("mobSpawn6Units", "刷怪点 6") end
 function Layer2.destroyMobSpawn6() Layer2.clearMobSpawn6() end
-function Layer2.activateMobSpawn6() activateUnits("mobSpawn6Units", "刷怪点 6") end
+function Layer2.activateMobSpawn6(tx, ty) activateUnits("mobSpawn6Units", "刷怪点 6", tx, ty) end
 
 -- 刷怪点 7
 function Layer2.spawnMobSpawn7(cx, cy)
@@ -651,7 +677,7 @@ function Layer2.spawnMobSpawn7(cx, cy)
 end
 function Layer2.clearMobSpawn7()   clearUnits("mobSpawn7Units", "刷怪点 7") end
 function Layer2.destroyMobSpawn7() Layer2.clearMobSpawn7() end
-function Layer2.activateMobSpawn7() activateUnits("mobSpawn7Units", "刷怪点 7") end
+function Layer2.activateMobSpawn7(tx, ty) activateUnits("mobSpawn7Units", "刷怪点 7", tx, ty) end
 
 -- 刷怪点 8
 function Layer2.spawnMobSpawn8(cx, cy)
@@ -666,7 +692,7 @@ function Layer2.spawnMobSpawn8(cx, cy)
 end
 function Layer2.clearMobSpawn8()   clearUnits("mobSpawn8Units", "刷怪点 8") end
 function Layer2.destroyMobSpawn8() Layer2.clearMobSpawn8() end
-function Layer2.activateMobSpawn8() activateUnits("mobSpawn8Units", "刷怪点 8") end
+function Layer2.activateMobSpawn8(tx, ty) activateUnits("mobSpawn8Units", "刷怪点 8", tx, ty) end
 
 -- 刷怪点 9（增强）
 function Layer2.spawnMobSpawn9(cx, cy)
@@ -681,7 +707,7 @@ function Layer2.spawnMobSpawn9(cx, cy)
 end
 function Layer2.clearMobSpawn9()   clearUnits("mobSpawn9Units", "刷怪点 9") end
 function Layer2.destroyMobSpawn9() Layer2.clearMobSpawn9() end
-function Layer2.activateMobSpawn9() activateUnits("mobSpawn9Units", "刷怪点 9") end
+function Layer2.activateMobSpawn9(tx, ty) activateUnits("mobSpawn9Units", "刷怪点 9", tx, ty) end
 
 -- 刷怪点 10（增强）
 function Layer2.spawnMobSpawn10(cx, cy)
@@ -696,7 +722,7 @@ function Layer2.spawnMobSpawn10(cx, cy)
 end
 function Layer2.clearMobSpawn10()   clearUnits("mobSpawn10Units", "刷怪点 10") end
 function Layer2.destroyMobSpawn10() Layer2.clearMobSpawn10() end
-function Layer2.activateMobSpawn10() activateUnits("mobSpawn10Units", "刷怪点 10") end
+function Layer2.activateMobSpawn10(tx, ty) activateUnits("mobSpawn10Units", "刷怪点 10", tx, ty) end
 
 -- 刷怪点 11
 function Layer2.spawnMobSpawn11(cx, cy)
@@ -711,7 +737,7 @@ function Layer2.spawnMobSpawn11(cx, cy)
 end
 function Layer2.clearMobSpawn11()   clearUnits("mobSpawn11Units", "刷怪点 11") end
 function Layer2.destroyMobSpawn11() Layer2.clearMobSpawn11() end
-function Layer2.activateMobSpawn11() activateUnits("mobSpawn11Units", "刷怪点 11") end
+function Layer2.activateMobSpawn11(tx, ty) activateUnits("mobSpawn11Units", "刷怪点 11", tx, ty) end
 
 -- ============================================================
 -- §9 批量操作
@@ -789,6 +815,7 @@ function Layer2.shutdown()
     Layer2.destroyWalls()
     Layer2.clearAllMobSpawns()
     Layer2.destroyMobSpawnRects()
+    Layer2.destroyTriggerAreaBL()
     print("[Layer2] 关闭")
 end
 
@@ -809,7 +836,7 @@ function Layer2.createTriggerAreaBL()
     local maxX, maxY = -11135.7, -9340.1
     
     -- 创建矩形区域
-    triggerAreaBL = Rect.new(minX, minY, maxX, maxY)
+    triggerAreaBL = Rect:new(minX, minY, maxX, maxY)
     print(string.format("[Layer2] 触发区域已创建 左下角：%.1f,%.1f 右上角：%.1f,%.1f", minX, minY, maxX, maxY))
     
     -- 设置单位进入事件（回调接收 Event 对象，通过 self.unit 获取进入的单位）
@@ -826,12 +853,14 @@ function Layer2.createTriggerAreaBL()
         
         print(string.format("[Layer2] 单位进入触发区域 unit=%s owner=%s", Event.unitDesc(unit), playerName))
         
-        -- 销毁竖墙 1（使用单位坐标）
-        if Layer2.removeWallNear(cj.GetUnitX(unit), cj.GetUnitY(unit), "触发区域") then
+        -- 销毁竖墙 1（使用单位坐标）并激活1号刷怪下达追击
+        local tx, ty = cj.GetUnitX(unit), cj.GetUnitY(unit)
+        if Layer2.removeWallNear(tx, ty, "触发区域") then
             print("[Layer2] 竖墙 1 已销毁（触发区域）")
-            
-            -- 激活 1 号刷怪点
-            Layer2.activateMobSpawn1()
+            Layer2.activateMobSpawn1(tx, ty)
+        else
+            -- 墙已不存在也激活（容错，避免首次进入因距离判定失败导致怪物不激活）
+            Layer2.activateMobSpawn1(tx, ty)
         end
         
         -- 删除区域和事件，避免其他单位进入造成重复触发
@@ -865,12 +894,22 @@ function Layer2.destroyTriggerAreaBL()
 end
 
 --- 创建所有刷怪矩形区域触发器（使用 Rect:newCenter + event）
+-- 每个区域为一次性：进入后删除对应最近墙、激活对应刷怪并下达攻击移动到触发单位位置、随后销毁区域防止重复触发
 function Layer2.createMobSpawnRects()
     for _, rectDef in ipairs(Layer2.mobSpawnRects) do
-        local cx = rectDef.cx
-        local cy = rectDef.cy
-        local width = rectDef.width
-        local height = rectDef.height
+        local curDef = rectDef -- 局部捕获，避免闭包共享同一 rectDef 导致全部指向最后一条
+        -- 若已存在旧矩形（重入/热重载），先清理避免泄漏
+        if mobSpawnRects[curDef.id] then
+            local old = mobSpawnRects[curDef.id]
+            Event:destroyRect(old)
+            old:destroy()
+            mobSpawnRects[curDef.id] = nil
+            mobSpawnEvents[curDef.id] = nil
+        end
+        local cx = curDef.cx
+        local cy = curDef.cy
+        local width = curDef.width
+        local height = curDef.height
         
         -- 使用 Rect:newCenter 创建矩形区域（中心点 + 宽高）
         local rect = Rect:newCenter(cx, cy, width, height)
@@ -887,58 +926,62 @@ function Layer2.createMobSpawnRects()
             local pid = player:getId()
             local playerName = player:getName() or string.format("玩家%d", pid)
             
-            print(string.format("[Layer2] 单位进入刷怪区域 %s unit=%s owner=%s", rectDef.name, Event.unitDesc(unit), playerName))
+            print(string.format("[Layer2] 单位进入刷怪区域 %s unit=%s owner=%s", curDef.name, Event.unitDesc(unit), playerName))
             
-            -- 激活对应编号的刷怪点
-            local spawnId = rectDef.id
-            Layer2.activateMobSpawn(spawnId)
+            local tx, ty = cj.GetUnitX(unit), cj.GetUnitY(unit)
+            -- 删除最近墙（以触发单位位置为锚点）
+            Layer2.removeWallNear(tx, ty, curDef.name)
+            -- 激活对应编号的刷怪点并让怪物攻击移动到触发者位置
+            Layer2.activateMobSpawn(curDef.id, tx, ty)
+
+            -- 一次性触发：销毁该区域与事件，防止重复触发
+            local r = mobSpawnRects[curDef.id]
+            if r then
+                print(string.format("[Layer2] 刷怪区域 %s 已触发，销毁区域防止重复", curDef.name))
+                Event:destroyRect(r)
+                r:destroy()
+                mobSpawnRects[curDef.id] = nil
+                mobSpawnEvents[curDef.id] = nil
+            end
         end)
         
         if event then
-            print(string.format("[Layer2] 刷怪区域 %s (%.1f,%.1f) 触发器已启动", rectDef.name, cx, cy))
+            print(string.format("[Layer2] 刷怪区域 %s (%.1f,%.1f) 触发器已启动", curDef.name, cx, cy))
         else
-            print(string.format("[Layer2] 刷怪区域 %s 创建失败", rectDef.name))
+            print(string.format("[Layer2] 刷怪区域 %s 创建失败", curDef.name))
         end
         
         -- 存储句柄
-        mobSpawnRects[rectDef.id] = rect
-        mobSpawnEvents[rectDef.id] = event
+        mobSpawnRects[curDef.id] = rect
+        mobSpawnEvents[curDef.id] = event
     end
     
     print(string.format("[Layer2] 共创建%d个刷怪矩形区域触发器", #Layer2.mobSpawnRects))
 end
 
---- 删除所有刷怪矩形区域触发器（先激活再删除）
+--- 删除所有刷怪矩形区域触发器
 function Layer2.destroyMobSpawnRects()
     for id, rect in pairs(mobSpawnRects) do
         if rect then
-            -- 销毁矩形区域
+            -- 销毁矩形区域（Event:destroyRect 已销毁对应触发器与 region）
             Event:destroyRect(rect)
             rect:destroy()
             print(string.format("[Layer2] 刷怪区域 %d 已销毁", id))
         end
     end
-    
-    -- 清空事件句柄（先激活再删除）
-    for id, event in pairs(mobSpawnEvents) do
-        if event then
-            Event:destroy(event)
-            event:destroy()
-        end
-    end
-    
+    -- mobSpawnEvents 与 mobSpawnRects 共享同一 trigger（Event:newRect复用），无需二次 Event:destroy
     mobSpawnRects = {}
     mobSpawnEvents = {}
     
     print(string.format("[Layer2] 共销毁%d个刷怪矩形区域触发器", #Layer2.mobSpawnRects))
 end
 
---- 通用激活刷怪点函数（根据 ID）
-function Layer2.activateMobSpawn(id)
+--- 通用激活刷怪点函数（根据 ID，透传目标坐标以便下达攻击移动）
+function Layer2.activateMobSpawn(id, tx, ty)
     local spawnFuncName = "activateMobSpawn" .. id
     local func = Layer2[spawnFuncName]
     if func then
-        func()
+        func(tx, ty)
     else
         print(string.format("[Layer2] 未找到刷怪点 %d 的激活函数", id))
     end
