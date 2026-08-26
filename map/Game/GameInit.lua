@@ -35,7 +35,7 @@ GameInit.initWall = nil -- 初始力量墙句柄（可破坏物）
 GameInit.currentLayer = 0 -- 当前关卡 0=未开始 1=关卡 1 2=关卡 2
 GameInit.reviveEvent = nil -- 英雄死亡复活事件
 -- 默认初始关卡：1=关卡 1，2=关卡 2（可根据需要修改）
-GameInit.initialLayer = 2
+GameInit.initialLayer = 3
 
 --- 应用迷雾设置（仅通过 Terrain 封装，不直调 cj）
 function GameInit.apply()
@@ -225,6 +225,12 @@ end
 
 --- 获取当前关卡复活点
 function GameInit.getCurrentRevivePos()
+    if GameInit.currentLayer == 4 and Layer4 and Layer4.revivePos then
+        return Layer4.revivePos
+    end
+    if GameInit.currentLayer == 3 and Layer3 and Layer3.revivePos then
+        return Layer3.revivePos
+    end
     if GameInit.currentLayer == 2 and Layer2 and Layer2.revivePos then
         return Layer2.revivePos
     end
@@ -329,6 +335,45 @@ function GameInit.startLayer2()
     end
 end
 
+--- 启动关卡 3（选英完成后）
+function GameInit.startLayer3()
+    if GameInit.currentLayer >= 3 then return end
+    GameInit.currentLayer = 3
+    GameInit.removeInitWall()
+    GameInit.giveInitialGold()
+    GameInit.registerReviveEvent()
+    local ok, L3 = pcall(require, "Game.Layers.Layer3")
+    if ok and L3 and L3.start then
+        L3.start()
+    else
+        print("[GameInit] Layer3 启动失败 " .. tostring(L3))
+    end
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", "关卡 3 已启动", SystemMessage.COLOR_INFO}}, 3.0)
+    else
+        Player.sendAll("关卡 3 已启动")
+    end
+end
+
+--- 启动关卡 4（关卡3通关后）
+function GameInit.startLayer4()
+    if GameInit.currentLayer >= 4 then return end
+    GameInit.currentLayer = 4
+    GameInit.giveInitialGold()
+    GameInit.registerReviveEvent()
+    local ok, L4 = pcall(require, "Game.Layers.Layer4")
+    if ok and L4 and L4.start then
+        L4.start()
+    else
+        print("[GameInit] Layer4 启动失败 " .. tostring(L4))
+    end
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", "关卡 4 已启动", SystemMessage.COLOR_INFO}}, 3.0)
+    else
+        Player.sendAll("关卡 4 已启动")
+    end
+end
+
 --- 启动关卡 1（选英完成后）
 function GameInit.startLayer1()
     if GameInit.currentLayer >= 1 then return end
@@ -413,21 +458,64 @@ function GameInit.registerControlEvent()
         local key = hid ~= 0 and hid or tostring(targetHandle)
         if GameInit.heroTaken[key] then return end
 
-        -- 执行移动：转移所有权 + 移动到对应关卡的入口位置
-        local cx, cy = ControlHeroPos.x, ControlHeroPos.y
-        
-        -- 根据 initialLayer 设置传送目标坐标（添加 nil 检查）
-        if GameInit.initialLayer == 2 then
-            -- 优先使用 Layer2EntryPos，如果不存在则尝试使用 Layer2.entryPos
+        -- 执行移动：转移所有权 + 移动到对应关卡的入口位置（兼容数组/对象，支持关卡3）
+        local cx, cy
+        -- 兼容 ControlHeroPos 为 {-11790,-15228} 数组或 {x=..,y=..} 对象两种写法
+        if ControlHeroPos then
+            if ControlHeroPos.x and ControlHeroPos.y then
+                cx, cy = ControlHeroPos.x, ControlHeroPos.y
+            elseif ControlHeroPos[1] and ControlHeroPos[2] then
+                cx, cy = ControlHeroPos[1], ControlHeroPos[2]
+            end
+        end
+        if GameInit.initialLayer == 4 then
+            if Layer4 and Layer4.entryPos then
+                cx, cy = Layer4.entryPos.x, Layer4.entryPos.y
+            elseif Layer4EntryPos then
+                cx, cy = Layer4EntryPos.x, Layer4EntryPos.y
+            else
+                cx, cy = -8518.2, 747.9
+            end
+            print(string.format("[GameInit] 玩家选择英雄后传送到关卡 4 入口：%.1f, %.1f", cx or 0, cy or 0))
+        elseif GameInit.initialLayer == 3 then
+            if Layer3 and Layer3.entryPos then
+                cx, cy = Layer3.entryPos.x, Layer3.entryPos.y
+            elseif Layer3EntryPos then
+                cx, cy = Layer3EntryPos.x, Layer3EntryPos.y
+            else
+                cx, cy = -11915.5, -1952.6
+            end
+            print(string.format("[GameInit] 玩家选择英雄后传送到关卡 3 入口：%.1f, %.1f", cx or 0, cy or 0))
+        elseif GameInit.initialLayer == 2 then
+            if Layer2 and Layer2.entryPos then
+                cx, cy = Layer2.entryPos.x, Layer2.entryPos.y
+            elseif Layer2EntryPos then
                 cx, cy = Layer2EntryPos.x, Layer2EntryPos.y
-                print(string.format("[GameInit] 玩家选择英雄后传送到关卡 2 入口：%.1f, %.1f", cx or 0, cy or 0))
+            else
+                cx, cy = -11398.9, -7748.4
+            end
+            print(string.format("[GameInit] 玩家选择英雄后传送到关卡 2 入口：%.1f, %.1f", cx or 0, cy or 0))
         elseif GameInit.initialLayer == 1 then
+            if Layer1 and Layer1.revivePos then
+                cx, cy = Layer1.revivePos.x, Layer1.revivePos.y
+            elseif Layer1RevivePos then
                 cx, cy = Layer1RevivePos.x, Layer1RevivePos.y
-                print(string.format("[GameInit] 玩家选择英雄后传送到关卡 1 位置：%.1f, %.1f", cx or 0, cy or 0))
-
+            else
+                cx, cy = cx or -11787.8, cy or -14967.1
+            end
+            print(string.format("[GameInit] 玩家选择英雄后传送到关卡 1 入口：%.1f, %.1f", cx or 0, cy or 0))
+        else
+            print(string.format("[GameInit] 玩家选择英雄后传送到默认位置：%.1f, %.1f", cx or 0, cy or 0))
+        end
+        if not cx or not cy then
+            print("[GameInit] 错误：传送目标坐标为 nil，回退到 ControlHeroPos")
+            if ControlHeroPos.x then cx, cy = ControlHeroPos.x, ControlHeroPos.y else cx, cy = ControlHeroPos[1], ControlHeroPos[2] end
         end
         
         targetUnit:setOwner(casterPlayer, true)
+        -- 关键修复：选英展示阶段为避免堆叠而 setPathing(false)，转移后必须恢复碰撞/寻路，否则英雄会无视地形与不可通行
+        if targetUnit.setPathing then targetUnit:setPathing(true) end
+        pcall(cj.SetUnitPathing, targetHandle, true)
         targetUnit:setPosition(cx, cy)
         -- 让英雄停止当前动作
         targetUnit:stop()
@@ -475,8 +563,12 @@ function GameInit.registerControlEvent()
             else
                 Player.sendAll("所有玩家已完成英雄选择")
             end
-            -- 根据 initialLayer 启动对应关卡
-            if GameInit.initialLayer == 2 then
+            -- 根据 initialLayer 启动对应关卡（已补关卡3/4）
+            if GameInit.initialLayer == 4 then
+                GameInit.startLayer4()
+            elseif GameInit.initialLayer == 3 then
+                GameInit.startLayer3()
+            elseif GameInit.initialLayer == 2 then
                 GameInit.startLayer2()
             else
                 GameInit.startLayer1()

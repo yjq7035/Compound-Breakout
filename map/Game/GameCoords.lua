@@ -28,3 +28,14 @@ ControlHeroPos = {-11790, -15228}
 
 --初始区域墙坐标：-11790,-14325
 InitWallPos = {-11790,-14325}
+
+-- 关卡3 墙体/矩形/通关区域（2026-08-26）
+Layer3DefaultWallPos = { x = -11919.8, y = -5694.8 }
+Layer3ActiveWallPos  = { x = -11919.4, y = -3450.2 }
+Layer3EventRectCoords = { left = -12826.7, bottom = -5514.3, right = -11014.0, top = -3705.4 }
+Layer3ExitCenter = { x = -11925.0, y = -6154.3, w = 500, h = 300 }
+Layer3Layer4Entry = { x = -8518.2, y = 747.9 }
+
+-- 关卡4 入口/复活（2026-08-26）
+Layer4EntryPos = { x = -8518.2, y = 747.9 }
+Layer4RevivePos = { x = -8518.2, y = 747.9 }

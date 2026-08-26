@@ -1081,12 +1081,27 @@ function Layer1.createExitRegion()
         if not owner or not owner:isUser() then return end
         local pid = owner:getId()
         if pid < 0 or pid > 3 then return end
-        -- 标记该玩家已进入
+        -- 标记该玩家已进入（仅首次计数）
+        local isNew = false
         if not Layer1.enteredPlayers[pid] then
             Layer1.enteredPlayers[pid] = true
+            isNew = true
             print(string.format("[Layer1] 玩家%d 进入通关区域 [%d/%d]", pid, Layer1.getEnteredCount(), Layer1.getOnlineCount()))
         end
-        -- 判断是否所有在线玩家都已进入（同时或累计）
+        -- 中央系统信息提示：谁已就绪 + 等待其余人数
+        if isNew and SystemMessage and SystemMessage.send then
+            local playerName = owner:getName()
+            if not playerName or playerName == "" then playerName = string.format("玩家%d", pid + 1) end
+            local need = Layer1.getOnlineCount()
+            local have = Layer1.getEnteredCount()
+            if have < need then
+                local remain = need - have
+                SystemMessage.send({{"STR", string.format("玩家 %s 已进入传送门就绪 [%d/%d]，等待其他 %d 名玩家进入...", playerName, have, need, remain), SystemMessage.COLOR_WARN}}, 3.0)
+            elseif have >= need and need > 0 then
+                -- 人数已齐，onAllPlayersEntered 会发通关提示，这里不再额外提示
+            end
+        end
+        -- 判断是否所有在线玩家都已进入（累计）
         local need = Layer1.getOnlineCount()
         local have = Layer1.getEnteredCount()
         if have >= need and need > 0 then
@@ -1118,41 +1133,48 @@ function Layer1.onAllPlayersEntered()
         Player.sendAll("关卡 1 通关！")
     end
     
-    -- 【问题 3 修复】更新所有玩家的起始位置到关卡 2 入口
+    -- 传送至关卡 2 入口：用 Unit 坐标移动（SetPlayerStartLocationX/Y 不存在，已移除）
     local entry = Layer2 and Layer2.entryPos or { x = -11398.9, y = -7748.4 }
-    for pid = 0, 3 do
-        local p = Player:new(pid)
-        if p:isPlaying() and p:isUser() then
-            -- 更新玩家的起始位置索引到关卡 2 入口（确保重生点也指向新关卡）
-            -- 注意：cj.SetPlayerStartLocation 设置的是触发器/存档中的预设位置索引
-            -- 这里我们使用 cj.SetPlayerStartLocationX/Y 直接设置坐标作为新的起始位置
-            if cj.SetPlayerStartLocation then
-                cj.SetPlayerStartLocation(p._handle, -1) -- -1 表示使用自定义坐标
-                cj.SetPlayerStartLocationX(p._handle, entry.x)
-                cj.SetPlayerStartLocationY(p._handle, entry.y)
-                print(string.format("[Layer1] 玩家%d 起始位置已更新到关卡 2 入口 %.1f,%.1f", pid, entry.x, entry.y))
-            end
-        end
-    end
-    
-    -- 移动所有玩家英雄到关卡 2 入口
     local ex, ey = entry.x, entry.y
+    print(string.format("[Layer1] 准备传送至关卡 2 入口 %.1f,%.1f", ex, ey))
     for pid = 0, 3 do
         local p = Player:new(pid)
         if p:isPlaying() and p:isUser() then
-            -- 移动该玩家所有英雄到入口
             local g = cj.CreateGroup()
             cj.GroupEnumUnitsOfPlayer(g, p._handle, nil)
             local u = cj.FirstOfGroup(g)
             while u ~= nil do
                 if cj.IsUnitType(u, UNIT_TYPE_HERO) then
-                    cj.SetUnitPosition(u, ex, ey)
-                    if cj.GetLocalPlayer() == p._handle then Camera.panTo(ex, ey) end
+                    -- 优先用 Unit 封装的坐标移动，确保与项目 OOP 层一致
+                    local moved = false
+                    if Unit and Unit.fromHandle then
+                        local ok, unitObj = pcall(Unit.fromHandle, u)
+                        if ok and unitObj and unitObj.setPosition then
+                            local ok2 = pcall(function() unitObj:setPosition(ex, ey) end)
+                            if ok2 then moved = true end
+                        end
+                    end
+                    if not moved then
+                        pcall(cj.SetUnitPosition, u, ex, ey)
+                        -- 兜底：SetUnitPosition 可能因地形阻塞失败，用 SetUnitX/Y
+                        pcall(cj.SetUnitX, u, ex)
+                        pcall(cj.SetUnitY, u, ey)
+                    end
+                    -- 防御：确保传送后恢复寻路（若之前因选英 setPathing(false) 残留）
+                    pcall(cj.SetUnitPathing, u, true)
+                    if Unit and Unit.fromHandle then
+                        local ok3, uo = pcall(Unit.fromHandle, u)
+                        if ok3 and uo and uo.setPathing then pcall(function() uo:setPathing(true) end) end
+                    end
+                    if cj.GetLocalPlayer() == p._handle and Camera and Camera.panTo then
+                        pcall(function() Camera.panTo(ex, ey) end)
+                    end
                 end
                 cj.GroupRemoveUnit(g, u)
                 u = cj.FirstOfGroup(g)
             end
             cj.DestroyGroup(g)
+            print(string.format("[Layer1] 玩家%d 英雄已传送至关卡 2 入口 %.1f,%.1f", pid, ex, ey))
         end
     end
     
