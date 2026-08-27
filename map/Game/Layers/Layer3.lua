@@ -11,16 +11,10 @@
 --      到期后移除两堵墙，创建通关传送区域 -11925.0,-6154.3 500x300
 --      全员进入后传送至关卡 4 -8518.2,747.9
 --   7. 活动刷怪系统（2026-08-27）：活动事件触发后启动 1 秒/次高精度真实计时器，
---      按玩家4→玩家5→玩家6→玩家7（0-based pid 4,5,6,7）轮转创建 u4dW/hZ5u，
+--      按玩家 4→玩家 5→玩家 6→玩家 7（0-based pid 4,5,6,7）轮转创建 u4dW/hZ5u，
 --      每归属玩家上限 20 个单位（满员递交下一位，全员满员跳过并告警），
 --      同步记录生成信息，关卡 3 结束时完整清理
---
--- 职责：
---   1. 存放第三关卡坐标（入口/复活、传送）
---   2. 墙体创建/销毁（可破坏物）
---   3. 事件矩形与生存计时器
---   4. 通关传送区域与关卡切换
---   5. 提供关卡生命周期：Layer3.start / Layer3.shutdown
+--   8. 阶段系统：1 阶段刷满 80 个怪进入 2 阶段，所有旧怪物获得 By2X buff（攻速 +50%）
 -- ============================================================
 
 Layer3 = {}
@@ -51,13 +45,6 @@ Layer3.layer4EntryPos = { x = -8518.2, y = 747.9, name = "关卡 4 入口" }
 -- ============================================================
 -- §2 矩形区域定义（Rect.new + 触发器事件）保留原 6 个占位
 -- ============================================================
--- 区域 1：左下 (-13445.5,-3497.3) -> 右上 (-12303.5,-3081.7)，中心 (-12874.5, -3289.5)
--- 区域 2：左下 (-13432.5,-6231.9) -> 右上 (-13036.5,-3549.6)，中心 (-13234.5, -4890.75)
--- 区域 3：左下 (-13427.5,-6155.4) -> 右上 (-12340.4,-5656.7)，中心 (-12883.95, -5906.05)
--- 区域 4：左下 (-11476.8,-6131.7) -> 右上 (-10396.5,-5730.1)，中心 (-10936.65, -5930.9)
--- 区域 5：左下 (-10864.5,-5644.4) -> 右上 (-10387.7,-3075.3)，中心 (-10626.1, -4359.85)
--- 区域 6：左下 (-11491.3,-3535.7) -> 右上 (-10826.9,-3064.2)，中心 (-11159.1, -3299.95)
-
 Layer3.mobSpawnRects = {
     { id = 1, cx = -12874.5, cy = -3289.5, width = 1142, height = 415.6, name = "矩形区域 1" },
     { id = 2, cx = -13234.5, cy = -4890.75, width = 396, height = 2682.3, name = "矩形区域 2" },
@@ -464,20 +451,23 @@ function Layer3.onAllPlayersEntered()
 end
 
 -- ============================================================
--- §8b 活动刷怪系统（高精度真实计时器 · 关卡 3 专属）
+-- §8b 活动刷怪系统（高精度真实计时器 · 关卡 3 专属）+ 阶段系统
 -- ============================================================
 -- 功能归属（2026-08-27）：本系统、本系统创建的所有 "u4dW"/"hZ5u" 单位实体、
 -- 单位分配/传递逻辑与生成记录，均为关卡 3 专属内容，随关卡 3 生命周期启停。
 --   触发：活动事件（英雄进入事件矩形）-> Layer3.startMobSpawnSystem()
 --   节奏：每秒 1 次；真计时器（useRealClock，同步游戏时钟驱动），不受帧率/游戏速度影响
---   归属：玩家4→玩家5→玩家6→玩家7 固定轮转（0-based pid 4,5,6,7，与代码库
+--   归属：玩家 4→玩家 5→玩家 6→玩家 7 固定轮转（0-based pid 4,5,6,7，与代码库
 --         "玩家%d"=pid 的既有命名一致；pid 4 为敌对电脑"怪物"槽位）
 --   上限：每归属玩家最多持有 20 个单位；目标玩家满员 -> 递交轮转下一位；
 --         全部满员 -> 跳过本次创建并记录警告日志
 --   记录：生成信息按创建时间顺序同步追加（计时器回调内直接 table.insert，
 --         同步阻塞，无任何异步，杜绝记录顺序混乱）
+--   阶段系统（2026-08-27 新增）：默认 1 阶段；每刷满 80 个单位进入下一阶段
+--     - 1->2 阶段转换时，所有旧怪物获得 By2X buff（攻击速度 +50%）
+-- ============================================================
 
--- 归属玩家轮转顺序（玩家4→玩家5→玩家6→玩家7，0-based pid）
+-- 归属玩家轮转顺序（玩家 4→玩家 5→玩家 6→玩家 7，0-based pid）
 Layer3.SPAWN_OWNER_PIDS = { 4, 5, 6, 7 }
 -- 刷怪单位类型（每 tick 交替创建）
 Layer3.SPAWN_UNIT_TYPES = { "u4dW", "hZ5u" }
@@ -492,6 +482,12 @@ Layer3.spawnRecords = {}       -- 生成记录列表（按创建时间顺序）
 Layer3.spawnUnits = {}         -- 已生成单位实体（清理用）
 Layer3.spawnLeaveEvent = nil   -- 玩家退出监听（玩家退出场景清理）
 Layer3._validSpawnRects = nil  -- 校验通过的刷怪矩形（init 时构建）
+
+-- ========== 阶段系统变量（新增） ==========
+Layer3.currentPhase = 1              -- 当前阶段，默认 1
+Layer3.phase2Started = false         -- 第 2 阶段是否已开始（防止重复触发）
+Layer3._phaseTransitionPending = false -- 是否有待处理的阶段转换
+Layer3.PHASE_MOBS_PER_STAGE = 80     -- 每阶段刷怪数量阈值
 
 -- 校验 mobSpawnRects 数据，返回有效矩形列表（id/cx/cy/width/height 齐全且宽高为正）
 local function validateSpawnRects()
@@ -544,7 +540,24 @@ local function pickSpawnPoint()
     return math.random(loX, hiX) / 10, math.random(loY, hiY) / 10
 end
 
--- 同步追加生成记录（创建时间戳/单位ID/单位类型/初始坐标/归属玩家ID/创建序号）
+-- ========== 辅助函数：统计所有刷怪单位（新增）==========
+local function getMobCount()
+    local typeA = c2i(Layer3.SPAWN_UNIT_TYPES[1])
+    local typeB = c2i(Layer3.SPAWN_UNIT_TYPES[2])
+    local count = 0
+    -- 使用 Group._forEachPoolUnit 遍历所有单位（底层表，跨机一致）
+    Group._forEachPoolUnit(function(u)
+        if Group._isValidUnit(u) then
+            local t = cj.GetUnitTypeId(u)
+            if t == typeA or t == typeB then
+                count = count + 1
+            end
+        end
+    end)
+    return count
+end
+
+-- 同步追加生成记录（创建时间戳/单位 ID/单位类型/初始坐标/归属玩家 ID/创建序号）
 -- 计时器回调内直接 table.insert，同步阻塞执行，保证记录顺序与创建顺序严格一致
 local function recordSpawn(u, pid, x, y)
     Layer3.spawnSeq = Layer3.spawnSeq + 1
@@ -553,7 +566,7 @@ local function recordSpawn(u, pid, x, y)
     local rec = {
         seq       = Layer3.spawnSeq,                 -- 创建序号
         timestamp = base + Layer3.spawnTick * 1000,  -- 创建时间戳（ms）
-        unitId    = cj.GetHandleId(u._handle),       -- 单位ID（句柄ID）
+        unitId    = cj.GetHandleId(u._handle),       -- 单位 ID（句柄 ID）
         unitType  = u:getTypeCode(),                 -- 单位类型（u4dW/hZ5u）
         x         = x,                               -- 初始坐标 X
         y         = y,                               -- 初始坐标 Y
@@ -564,12 +577,55 @@ local function recordSpawn(u, pid, x, y)
     return rec
 end
 
--- 每秒回调：按固定顺序创建 1 个单位（含上限传递逻辑）
+-- 每秒回调：按固定顺序创建 1 个单位（含上限传递逻辑 + 阶段系统）
 local function onSpawnTick()
     if Layer3.finished then return end
     Layer3.spawnTick = Layer3.spawnTick + 1
 
-    -- 固定顺序 玩家4→5→6→7：从本轮起点依序查找未达上限的归属玩家
+    -- ===== 新增阶段系统逻辑 =====
+    -- 统计所有刷怪单位的总数
+    local totalMobs = getMobCount()
+    
+    -- 判断是否进入下一阶段的转换条件（每阶段 PHASE_MOBS_PER_STAGE 个单位）
+    if totalMobs > 0 and not Layer3._phaseTransitionPending then
+        local targetPhase = math.ceil(totalMobs / Layer3.PHASE_MOBS_PER_STAGE)
+        -- 只允许从 1 阶段进入 2 阶段（可后续扩展更多阶段）
+        if targetPhase > Layer3.currentPhase and targetPhase <= 2 then
+            Layer3._phaseTransitionPending = true
+            print(string.format("[Layer3] 检测到总单位数 %d，准备进入第%d阶段", totalMobs, targetPhase))
+        end
+    end
+
+    -- ===== 处理阶段转换（仅当有待处理的转换且第 2 阶段尚未开始）=====
+    if Layer3._phaseTransitionPending and not Layer3.phase2Started then
+        -- 从 1 阶段切换到 2 阶段
+        print("[Layer3] === 进入第 2 阶段！===")
+        
+        -- 更新阶段变量
+        Layer3.currentPhase = 2
+        Layer3.phase2Started = true
+        
+        -- 给所有旧单位施加 By2X buff（攻击速度 +50%）
+        local buffId = c2i("By2X")
+        print(string.format("[Layer3] 开始为 %d 个旧单位施加 Buff", #Layer3.spawnUnits))
+        for i, u in ipairs(Layer3.spawnUnits) do
+            if u and u._handle then
+                pcall(function()
+                    -- 使用原生 API 附加 buff：AddSpellToUnit(unitHandle, spellId)
+                    cj.AddSpellToUnit(u._handle, buffId)
+                    local unitName = cj.GetUnitTypeId(u._handle) or "未知单位"
+                    print(string.format("[Layer3] Buff 已施加到 [%d/%d] %s", i, #Layer3.spawnUnits, unitName))
+                end)
+            else
+                print(string.format("[Layer3] 跳过无效单位：%s", tostring(u)))
+            end
+        end
+        
+        -- 清除转换标记，但保持 phase2Started=true 防止重复触发
+        Layer3._phaseTransitionPending = false
+        print("[Layer3] 阶段转换完成，旧单位已全部获得 Buff")
+    end
+
     local n = #Layer3.SPAWN_OWNER_PIDS
     local startIdx = currentOwnerIndex()
     local targetPid = nil
@@ -605,6 +661,10 @@ local function onSpawnTick()
     local rec = recordSpawn(u, targetPid, x, y)
     print(string.format("[Layer3] 刷怪 #%d tick=%d 单位=%s(%s) 归属=玩家%d 坐标=%.1f,%.1f",
         rec.seq, Layer3.spawnTick, rec.unitType, rec.unitId, rec.pid, rec.x, rec.y))
+    
+    -- 打印阶段信息（调试用）
+    print(string.format("[Layer3] === 阶段信息 === 当前：%d 总单位数：%d 阈值:%d", 
+        Layer3.currentPhase, totalMobs, Layer3.PHASE_MOBS_PER_STAGE))
 end
 
 -- 初始化（关卡 3 开始加载完成后调用）：计时器/计数器清零、记录列表初始化、
@@ -618,7 +678,12 @@ function Layer3.initMobSpawnSystem()
     Layer3._validSpawnRects = validateSpawnRects()
     Layer3.registerSpawnLeaveHandler()
 
-    print(string.format("[Layer3] 刷怪系统初始化完成：刷怪矩形 %d/%d 有效，归属轮转 %d 槽（玩家4→玩家5→玩家6→玩家7），每槽上限 %d 单位",
+    -- 初始化阶段系统变量
+    Layer3.currentPhase = 1
+    Layer3.phase2Started = false
+    Layer3._phaseTransitionPending = false
+
+    print(string.format("[Layer3] 刷怪系统初始化完成：刷怪矩形 %d/%d 有效，归属轮转 %d 槽（玩家 4→玩家 5→玩家 6→玩家 7），每槽上限 %d 单位",
         #Layer3._validSpawnRects, #Layer3.mobSpawnRects, #Layer3.SPAWN_OWNER_PIDS, Layer3.SPAWN_MAX_PER_PLAYER))
 end
 
@@ -642,7 +707,7 @@ function Layer3.startMobSpawnSystem()
     -- 真计时器：useRealClock=true，同步游戏时钟驱动，不受帧率/游戏速度影响
     local t = Timer:new(1.0, true, onSpawnTick, nil, true)
     Layer3.spawnTimer = t
-    print("[Layer3] 刷怪系统启动：1 秒/次，归属顺序 玩家4→玩家5→玩家6→玩家7")
+    print("[Layer3] 刷怪系统启动：1 秒/次，归属顺序 玩家 4→玩家 5→玩家 6→玩家 7")
     return t
 end
 
@@ -679,6 +744,12 @@ function Layer3.cleanupMobSpawnSystem(reason)
     Layer3.spawnTick = 0
     Layer3.spawnSeq = 0
     Layer3._validSpawnRects = nil
+    
+    -- ========== 清理阶段系统状态（新增）==========
+    Layer3.currentPhase = 1
+    Layer3.phase2Started = false
+    Layer3._phaseTransitionPending = false
+    
     if Layer3.spawnLeaveEvent then
         pcall(function() Layer3.spawnLeaveEvent:destroy() end)
         Layer3.spawnLeaveEvent = nil
@@ -751,7 +822,7 @@ end
 function Layer3.onAllPlayersDied()
     -- 防止重复触发
     if Layer3.finished then return end
-    print("[Layer3] === 所有在线玩家死亡，触发关卡重置！")
+    print("[Layer3] === 所有在线玩家死亡，触发关卡重置！===")
     
     -- 广播失败消息（中央系统信息 + Player.sendAll）
     local msg = "🚨 关卡失败 - 所有玩家死亡！10 秒后将重启关卡 3..."
@@ -787,7 +858,7 @@ end
 
 function Layer3.onReloadingLevel3()
     if Layer3.finished then return end
-    print("[Layer3] === 10 秒倒计时结束，重启关卡 3...")
+    print("[Layer3] === 10 秒倒计时结束，重启关卡 3...===")
     
     -- 广播重启消息
     local msg = "🔄 关卡 3 即将重启！所有玩家将在复活点重生..."
@@ -817,7 +888,7 @@ function Layer3.onReloadingLevel3()
     -- 1 秒后重新加载关卡（通过 GameInit.startLayer3 重启）
     Timer:new(1, false, function()
         Layer3.reloading = true
-        print("[Layer3] === 尝试重新加载关卡 3...")
+        print("[Layer3] === 尝试重新加载关卡 3...===")
         if GameInit and GameInit.startLayer3 then
             -- 直接调用 startLayer3（会重置状态并重新启动整个关卡）
             GameInit.startLayer3()
