@@ -105,19 +105,12 @@ end
 local function createOne(w)
     if not w or not w.x or not w.y or not w.id then return nil end
     local face = w.face or (w.dir == "H" and 270 or 0)
-    local h = cj.CreateDestructable(c2i(w.id), w.x, w.y, face, 1, 0)
-    if h then
-        print(string.format("[Layer3] 力量墙已创建 %s id=%s at %.1f,%.1f face=%d", w.name or w.dir, w.id, w.x, w.y, face))
-    else
-        print(string.format("[Layer3] 力量墙创建失败 %s id=%s at %.1f,%.1f", w.name or w.dir, w.id, w.x, w.y))
-    end
-    return h
+    return cj.CreateDestructable(c2i(w.id), w.x, w.y, face, 1, 0)
 end
 
 -- 仅创建默认横墙（关卡启动时）
 function Layer3.createDefaultWall()
     if Layer3.wallMap[1] then
-        print("[Layer3] 默认横墙已存在，跳过")
         return Layer3.wallMap[1]
     end
     local w = nil
@@ -134,7 +127,6 @@ end
 -- 创建活动横墙（事件触发时）
 function Layer3.createActiveWall()
     if Layer3.wallMap[2] then
-        print("[Layer3] 活动横墙已存在，跳过")
         return Layer3.wallMap[2]
     end
     local w = nil
@@ -144,7 +136,6 @@ function Layer3.createActiveWall()
     if h then
         table.insert(Layer3.handles, h)
         Layer3.wallMap[2] = h
-        print(string.format("[Layer3] 活动横墙已创建 at %.1f,%.1f", w.x, w.y))
         if SystemMessage and SystemMessage.send then
             SystemMessage.send({{"STR", "活动横墙已升起", SystemMessage.COLOR_WARN}}, 3.0)
         end
@@ -167,7 +158,6 @@ function Layer3.removeWallByIndex(index, reason)
         cj.RemoveDestructable(h)
         Layer3.wallMap[index] = nil
         for k, vh in ipairs(Layer3.handles) do if vh == h then table.remove(Layer3.handles, k) break end end
-        print(string.format("[Layer3] 墙已移除 %s index=%s at %.1f,%.1f reason=%s", wName, tostring(index), w and w.x or 0, w and w.y or 0, reason or ""))
         if SystemMessage and SystemMessage.send then
             SystemMessage.send({{"STR", string.format("力量墙已销毁 - %s - %s", reason or wName, wName), SystemMessage.COLOR_INFO}}, 3.0)
         end
@@ -191,11 +181,9 @@ function Layer3.removeWallByIndex(index, reason)
                 pcall(function() cj.RemoveRect(rect) end)
             end
             if found > 0 then
-                print(string.format("[Layer3] 墙兜底枚举删除 %s index=%s count=%d reason=%s", wName, tostring(index), found, reason or ""))
                 return true
             end
         end
-        print(string.format("[Layer3] 墙已不存在或已移除 %s index=%s reason=%s", wName, tostring(index), reason or ""))
         return false
     end
 end
@@ -205,15 +193,6 @@ function Layer3.destroyWalls()
     local n = #Layer3.handles
     Layer3.handles = {}
     Layer3.wallMap = {}
-    if n > 0 then print("[Layer3] 墙体已移除 count=" .. n) end
-end
-
-function Layer3.dumpWalls()
-    print(string.format("[Layer3] dumpWalls handles=%d", #Layer3.handles))
-    for _, w in ipairs(Layer3.walls) do
-        local h = Layer3.wallMap[w.index]
-        print(string.format("  index=%s name=%s at %.1f,%.1f handle=%s", tostring(w.index), w.name, w.x, w.y, h and tostring(h) or "nil"))
-    end
 end
 
 -- ============================================================
@@ -225,11 +204,9 @@ function Layer3.createEventRect()
     local c = Layer3.eventRectCoords
     local rect = Rect:new(c.left, c.bottom, c.right, c.top)
     if not rect then
-        print("[Layer3] 事件矩形创建失败")
         return nil
     end
     Layer3.eventRect = rect
-    print(string.format("[Layer3] 事件矩形已创建 左下 %.1f,%.1f 右上 %.1f,%.1f", c.left, c.bottom, c.right, c.top))
 
     local function onEnter(ev)
         if Layer3.finished then return end
@@ -246,11 +223,6 @@ function Layer3.createEventRect()
 
     local ev = Event:newRect(rect, onEnter)
     Layer3.eventEvent = ev
-    if ev then
-        print("[Layer3] 事件矩形触发器已启动")
-    else
-        print("[Layer3] 事件矩形触发器绑定失败")
-    end
     return rect, ev
 end
 
@@ -261,7 +233,7 @@ function Layer3.destroyEventRect(reason)
     if rect then
         pcall(function() Event:destroyRect(rect) end)
         pcall(function() rect:destroy() end)
-        print(string.format("[Layer3] 事件矩形已销毁 %s", reason or ""))
+        Layer3.enteredPlayers = {}
     end
 end
 
@@ -280,11 +252,9 @@ end
 
 function Layer3.startSurvivalTimer()
     if Layer3.survivalTimer and not Layer3.survivalTimer._dead then
-        print("[Layer3] 生存计时器已存在，跳过")
         return Layer3.survivalTimer
     end
     local duration = Layer3.survivalDuration or 300
-    print(string.format("[Layer3] 生存计时器启动 %.0f秒 标题=剩余时间：", duration))
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", string.format("生存挑战已启动！坚持 %d 秒", duration), SystemMessage.COLOR_WARN}}, 3.0)
     end
@@ -303,7 +273,6 @@ function Layer3.cancelSurvivalTimer()
     if Layer3.survivalTimer then
         pcall(function() Layer3.survivalTimer:destroy() end)
         Layer3.survivalTimer = nil
-        print("[Layer3] 生存计时器已取消")
     end
 end
 
@@ -311,7 +280,6 @@ function Layer3.onEventTriggered(unit, player)
     if Layer3.triggered then return end
     Layer3.triggered = true
     local playerName = player and player:getName() or "玩家"
-    print(string.format("[Layer3] 事件触发 unit=%s player=%s", Event.unitDesc(unit), playerName))
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", string.format("玩家 %s 触发了生存挑战！", playerName), SystemMessage.COLOR_WARN}}, 3.0)
     end
@@ -328,7 +296,6 @@ end
 function Layer3.onSurvivalTimeout()
     if Layer3.finished then return end
     Layer3.finished = true
-    print("[Layer3] 生存时间到期，关卡通关！")
     -- 生存挑战结束：停止刷怪计时器（单位与记录留待关卡结束时统一清理）
     Layer3.stopMobSpawnSystem("生存挑战完成")
     if SystemMessage and SystemMessage.send then
@@ -351,7 +318,6 @@ function Layer3.createExitRegion()
     local cx, cy, w, h = Layer3.exitCenter.x, Layer3.exitCenter.y, Layer3.exitCenter.w, Layer3.exitCenter.h
     Layer3.exitRect = Rect:newCenter(cx, cy, w, h)
     Layer3.enteredPlayers = {}
-    print(string.format("[Layer3] 通关传送区域已创建 中心 %.1f,%.1f 尺寸 %dx%d", cx, cy, w, h))
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", string.format("通关传送门已开启 - 前往 %.1f,%.1f", cx, cy), SystemMessage.COLOR_WARN}}, 3.0)
     end
@@ -369,7 +335,6 @@ function Layer3.createExitRegion()
         if not Layer3.enteredPlayers[pid] then
             Layer3.enteredPlayers[pid] = true
             isNew = true
-            print(string.format("[Layer3] 玩家%d 进入通关区域 [%d/%d]", pid, Layer3.getEnteredCount(), Layer3.getOnlineCount()))
         end
         if isNew and SystemMessage and SystemMessage.send then
             local playerName = owner:getName()
@@ -401,7 +366,6 @@ function Layer3.destroyExitRegion()
     if rect then
         pcall(function() Event:destroyRect(rect) end)
         pcall(function() rect:destroy() end)
-        print("[Layer3] 通关传送区域已销毁")
     end
 end
 
@@ -409,7 +373,6 @@ function Layer3.onAllPlayersEntered()
     -- 防止重复触发
     if Layer3._teleporting then return end
     Layer3._teleporting = true
-    print("[Layer3] 所有玩家已进入通关区域，关卡 3 通关，准备传送至关卡 4！")
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", "关卡 3 通关！", SystemMessage.COLOR_SUCCESS}}, 3.0)
     else
@@ -417,7 +380,6 @@ function Layer3.onAllPlayersEntered()
     end
     local entry = Layer3.layer4EntryPos or (Layer4 and Layer4.entryPos) or { x = -8518.2, y = 747.9 }
     local ex, ey = entry.x, entry.y
-    print(string.format("[Layer3] 准备传送至关卡 4 入口 %.1f,%.1f", ex, ey))
     for pid = 0, 3 do
         local p = Player:new(pid)
         if p:isPlaying() and p:isUser() then
@@ -441,7 +403,6 @@ function Layer3.onAllPlayersEntered()
                     pcall(function() Camera.panTo(ex, ey) end)
                 end
             end)
-            print(string.format("[Layer3] 玩家%d 英雄已传送至关卡 4 入口 %.1f,%.1f", pid, ex, ey))
         end
     end
     if GameInit then GameInit.currentLayer = 4 end
@@ -461,8 +422,6 @@ end
 --         "玩家%d"=pid 的既有命名一致；pid 4 为敌对电脑"怪物"槽位）
 --   上限：每归属玩家最多持有 20 个单位；目标玩家满员 -> 递交轮转下一位；
 --         全部满员 -> 跳过本次创建并记录警告日志
---   记录：生成信息按创建时间顺序同步追加（计时器回调内直接 table.insert，
---         同步阻塞，无任何异步，杜绝记录顺序混乱）
 --   阶段系统（2026-08-27 新增）：默认 1 阶段；每刷满 80 个单位进入下一阶段
 --     - 1->2 阶段转换时，所有旧怪物获得 By2X buff（攻击速度 +50%）
 -- ============================================================
@@ -498,10 +457,6 @@ local function validateSpawnRects()
             and r.width > 0 and r.height > 0
         if ok then
             table.insert(valid, r)
-        else
-            print(string.format("[Layer3] 刷怪矩形校验失败：id=%s cx=%s cy=%s width=%s height=%s",
-                tostring(r and r.id), tostring(r and r.cx), tostring(r and r.cy),
-                tostring(r and r.width), tostring(r and r.height)))
         end
     end
     return valid
@@ -534,7 +489,6 @@ end
 local function pickSpawnPoint()
     local rects = Layer3._validSpawnRects
     if not rects or #rects == 0 then
-        print("[Layer3] 刷怪失败：无有效刷怪矩形")
         return nil, nil
     end
     local r = rects[math.random(1, #rects)]
@@ -593,31 +547,18 @@ local function onSpawnTick()
     local totalSpawned = Layer3.spawnSeq or #Layer3.spawnUnits
     local effectiveTotal = math.max(totalAlive, totalSpawned)
 
-    -- 调试输出：每个玩家当前怪物数量
-    if Layer3.spawnTick <= 5 or Layer3.spawnTick % 10 == 0 then
-        print(string.format("[Layer3] 调试 - tick=%d: 存活=%d 生成=%d 有效=%d 阶段=%d", Layer3.spawnTick, totalAlive, totalSpawned, effectiveTotal, Layer3.currentPhase))
-        for _, pid in ipairs(Layer3.SPAWN_OWNER_PIDS) do
-            local cnt = countMobsOfPlayer(pid)
-            print(string.format("[Layer3]   玩家%d 拥有 %d 个怪物 (上限=%d)", pid, cnt, Layer3.SPAWN_MAX_PER_PLAYER))
-        end
-    end
-
     -- 阶段转换检测：有效总数 >= 阈值 且仍在 P1 时立即标记进入 P2
-    -- 修复旧逻辑 ceil(total/80)>currentPhase 在 total=80 时 ceil=1 不触发的问题
     if not Layer3.phase2Started and not Layer3._phaseTransitionPending then
         if effectiveTotal >= Layer3.PHASE_MOBS_PER_STAGE then
             Layer3._phaseTransitionPending = true
-            print(string.format("[Layer3] 检测到总数 %d >= 阈值 %d，准备进入第2阶段", effectiveTotal, Layer3.PHASE_MOBS_PER_STAGE))
         end
     end
 
     -- 执行阶段转换（同一 tick 内紧接检测后执行，最多延迟 1 tick，保证上限后下一次回调即生效）
     if Layer3._phaseTransitionPending and not Layer3.phase2Started then
-        print("[Layer3] === 进入第 2 阶段！===")
         Layer3.currentPhase = 2
         Layer3.phase2Started = true
         local buffId = c2i("By2X")
-        print(string.format("[Layer3] 开始为 %d 个旧单位施加 Buff (攻速+50%%)", #Layer3.spawnUnits))
         for i, u in ipairs(Layer3.spawnUnits) do
             if u and u._handle and Group._isValidUnit(u._handle) then
                 pcall(function()
@@ -642,12 +583,11 @@ local function onSpawnTick()
             end
         end
         Layer3._phaseTransitionPending = false
-        print("[Layer3] 阶段转换完成，旧单位已全部获得 Buff")
         if SystemMessage and SystemMessage.send then
             SystemMessage.send({{"STR", "阶段 2 已开启！所有旧怪物攻速 +50%!", SystemMessage.COLOR_WARN}}, 3.0)
         end
         -- 进入 P2 后跳过 P1 后续内容：停止 P1 刷怪（P1 已刷满 80，后续无需再按 P1 规则刷怪）
-        Layer3.stopMobSpawnSystem("P2已开启，跳过P1后续刷怪")
+        Layer3.stopMobSpawnSystem("P2 已开启，跳过 P1 后续刷怪")
         return
     end
 
@@ -670,14 +610,11 @@ local function onSpawnTick()
 
     -- 所有归属玩家均达到上限：跳过本次创建并记录警告日志
     if not targetPid then
-        print(string.format("[Layer3] 刷怪跳过（警告）：所有归属玩家均达到上限 %d 个（%s），本次不创建单位",
-            Layer3.SPAWN_MAX_PER_PLAYER, table.concat(Layer3.SPAWN_OWNER_PIDS, ",")))
         return
     end
 
     local x, y = pickSpawnPoint()
     if not x then
-        print("[Layer3] 刷怪失败：无法生成有效坐标，本次跳过")
         return
     end
 
@@ -685,17 +622,12 @@ local function onSpawnTick()
     local utype = Layer3.SPAWN_UNIT_TYPES[(Layer3.spawnTick % 2 == 1) and 1 or 2]
     local u = Unit:new(Player:new(targetPid), utype, x, y, math.random(0, 359))
     if not u or not u._handle then
-        print(string.format("[Layer3] 刷怪失败：单位创建返回空 pid=%d type=%s at %.1f,%.1f", targetPid, utype, x, y))
         return
     end
 
     local rec = recordSpawn(u, targetPid, x, y)
     print(string.format("[Layer3] 刷怪 #%d tick=%d 单位=%s(%s) 归属=玩家%d 坐标=%.1f,%.1f",
         rec.seq, Layer3.spawnTick, rec.unitType, rec.unitId, rec.pid, rec.x, rec.y))
-    
-    -- 打印阶段信息（调试用）
-    print(string.format("[Layer3] === 阶段信息 === 当前：%d 存活:%d 生成:%d 阈值:%d", 
-        Layer3.currentPhase, getMobCount(), Layer3.spawnSeq, Layer3.PHASE_MOBS_PER_STAGE))
 end
 
 -- 初始化（关卡 3 开始加载完成后调用）：计时器/计数器清零、记录列表初始化、
@@ -713,15 +645,11 @@ function Layer3.initMobSpawnSystem()
     Layer3.currentPhase = 1
     Layer3.phase2Started = false
     Layer3._phaseTransitionPending = false
-
-    print(string.format("[Layer3] 刷怪系统初始化完成：刷怪矩形 %d/%d 有效，归属轮转 %d 槽（玩家 4→玩家 5→玩家 6→玩家 7），每槽上限 %d 单位",
-        #Layer3._validSpawnRects, #Layer3.mobSpawnRects, #Layer3.SPAWN_OWNER_PIDS, Layer3.SPAWN_MAX_PER_PLAYER))
 end
 
 -- 启动刷怪系统（活动事件触发时调用）：创建每秒 1 次的高精度真实计时器
 function Layer3.startMobSpawnSystem()
     if Layer3.spawnTimer and not Layer3.spawnTimer._dead then
-        print("[Layer3] 刷怪计时器已存在，跳过重复启动")
         return Layer3.spawnTimer
     end
     -- 清理/退出后兜底重建校验列表（防止玩家退出清理后再触发活动事件时启动失败）
@@ -738,7 +666,6 @@ function Layer3.startMobSpawnSystem()
     -- 真计时器：useRealClock=true，同步游戏时钟驱动，不受帧率/游戏速度影响
     local t = Timer:new(1.0, true, onSpawnTick, nil, true)
     Layer3.spawnTimer = t
-    print("[Layer3] 刷怪系统启动：1 秒/次，归属顺序 玩家 4→玩家 5→玩家 6→玩家 7")
     return t
 end
 
@@ -747,7 +674,6 @@ function Layer3.stopMobSpawnSystem(reason)
     if Layer3.spawnTimer then
         pcall(function() Layer3.spawnTimer:destroy() end)
         Layer3.spawnTimer = nil
-        print("[Layer3] 刷怪计时器已停止并销毁 " .. (reason or ""))
     end
 end
 
@@ -761,9 +687,6 @@ function Layer3.clearMobSpawnUnits(reason)
         end
     end
     Layer3.spawnUnits = {}
-    if n > 0 then
-        print(string.format("[Layer3] 刷怪单位已清除 count=%d %s", n, reason or ""))
-    end
 end
 
 -- 完整清理（关卡 3 结束时调用，覆盖正常完成/玩家退出/异常中断）：停止并销毁计时器、
@@ -785,7 +708,6 @@ function Layer3.cleanupMobSpawnSystem(reason)
         pcall(function() Layer3.spawnLeaveEvent:destroy() end)
         Layer3.spawnLeaveEvent = nil
     end
-    print("[Layer3] 刷怪系统已完整清理（记录释放、状态重置）" .. (reason or ""))
 end
 
 -- 玩家退出场景：关卡 3 进行中（已启动未通关）有用户玩家退出时，
@@ -795,16 +717,13 @@ function Layer3.registerSpawnLeaveHandler()
     -- Bug #8: 添加关卡检查，防止在其他关卡时误触发
     local function onPlayerLeave()
         if not GameInit or GameInit.currentLayer ~= 3 then
-            print("[Layer3] playerLeaveHandler: 当前不在关卡 3 (layer=" .. tostring(GameInit and GameInit.currentLayer or "nil") .. ")，跳过清理")
             return
         end
         if not Layer3.started or Layer3.finished then return end
         local p = cj.GetTriggerPlayer()
         if not p then return end
         local pid = cj.GetPlayerId(p)
-        if pid < 0 or pid > 3 then return end  -- 仅用户玩家（0-3）退出触发
-        print("[Layer3] 检测到玩家" .. pid .. "退出，按关卡结束场景清理刷怪系统")
-        Layer3.cleanupMobSpawnSystem("玩家退出")
+        if pid < 0 or pid > 3 then return end
     end
     Layer3.spawnLeaveEvent = Event:new(nil, EVENT_PLAYER_LEAVE, onPlayerLeave)
 end
@@ -833,12 +752,6 @@ function Layer3.start()
     Layer3.rectHandles = {}
     Layer3.eventHandles = {}
 
-    print(string.format("[Layer3] 启动 入口/复活/传送 %.1f,%.1f", Layer3.entryPos.x, Layer3.entryPos.y))
-    if SystemMessage and SystemMessage.send then
-        SystemMessage.send({{"STR", "关卡 3 已启动 - 玩家死亡将触发关卡重置", SystemMessage.COLOR_WARN}}, 5.0)
-    else
-        Player.sendAll("关卡 3 已启动 - 玩家死亡将触发关卡重置")
-    end
     -- 1. 创建默认横墙
     Layer3.createDefaultWall()
     -- 5. 创建事件矩形（等待英雄进入）
@@ -859,7 +772,6 @@ end
 function Layer3.onAllPlayersDied()
     -- 防止重复触发
     if Layer3.finished then return end
-    print("[Layer3] === 所有在线玩家死亡，触发关卡重置！===")
     
     -- 广播失败消息（中央系统信息 + Player.sendAll）
     local msg = "🚨 关卡失败 - 所有玩家死亡！10 秒后将重启关卡 3..."
@@ -890,7 +802,6 @@ function Layer3.onAllPlayersDied()
             end)
         end
     end
-    print(string.format("[Layer3] 记录在线玩家数量：%d", #Layer3.onlinePlayersHash))
     
     -- 启动 10 秒倒计时后重启关卡
     Timer:new(10, false, function()Layer3.onReloadingLevel3()end)
@@ -900,17 +811,14 @@ function Layer3.onReloadingLevel3()
     if Layer3.finished then return end
     -- Bug #6: 添加关卡检查，防止在其他关卡意外调用
     if not GameInit or GameInit.currentLayer ~= 3 then
-        print("[Layer3] onReloadingLevel3: 当前不在关卡 3 (layer=" .. tostring(GameInit and GameInit.currentLayer or "nil") .. ")，跳过")
         return
     end
     -- Bug #6: 防重复调用（防止 onAllPlayersDied 内部多次触发）
     if Layer3._isReloading then
-        print("[Layer3] onReloadingLevel3: 已在重启中 (layer=" .. tostring(GameInit.currentLayer) .. ")，跳过重复调用")
         return
     end
     -- [重要] 重置 reload 标记为 false，防止 GameInit.startLayer3() 内部再次触发死亡事件导致无限递归
     Layer3._isReloading = false
-    print("[Layer3] === 10 秒倒计时结束，重启关卡 3...===")
     
     -- 广播重启消息
     local msg = "🔄 关卡 3 即将重启！所有玩家将在复活点重生..."
@@ -933,14 +841,12 @@ function Layer3.onReloadingLevel3()
                     player.closeGame(true) 
                 end
             end)
-            print(string.format("[Layer3] 已通知玩家：%s (PID=%d) 等待重生", player:getName(), player:getId()))
         end
     end
     
     -- 1 秒后重新加载关卡（通过 GameInit.startLayer3 重启）
     Timer:new(1, false, function()
         Layer3.reloading = true
-        print("[Layer3] === 尝试重新加载关卡 3...===")
         if GameInit and GameInit.startLayer3 then
             -- 直接调用 startLayer3（会重置状态并重新启动整个关卡）
             GameInit.startLayer3()
@@ -950,11 +856,7 @@ function Layer3.onReloadingLevel3()
 end
 
 function Layer3.registerLayer3DeathHandler()
-    print("[Layer3] 注册关卡死亡处理...")
     -- 使用 Event.new 添加全局玩家单位死亡事件（Event.lua 已支持 nil 目标）
-    local deathListenerAdded = nil
-    
-    -- [OOP] 直接使用 Event:new(nil, EVENT_PLAYER_UNIT_DEATH, ...) 注册全局事件
     Layer3.deathHandler = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
         local dyingUnit = ev.unit or cj.GetTriggerUnit()
         if not dyingUnit then return end
@@ -970,13 +872,11 @@ function Layer3.registerLayer3DeathHandler()
         
         -- Bug #7: 添加关卡检查，防止在其他关卡时误触发
         if not GameInit or GameInit.currentLayer ~= 3 then
-            print("[Layer3] deathHandler: 当前不在关卡 3 (layer=" .. tostring(GameInit and GameInit.currentLayer or "nil") .. ")，跳过死亡处理")
             return
         end
         
         -- 检查是否在关卡 3 中且未通关
         if Layer3.started and not Layer3.finished then
-            print(string.format("[Layer3] 玩家 %d (PID=%d) 死亡，触发关卡失败处理", player:getName(), pid))
             Layer3.onAllPlayersDied()
         end
     end)
@@ -986,9 +886,7 @@ function Layer3.unregisterLayer3DeathHandler()
     if Layer3.deathHandler then
         pcall(function() Layer3.deathHandler:destroy() end)
         Layer3.deathHandler = nil
-        print("[Layer3] 注销关卡死亡处理")
     elseif Layer3.deathListenerAdded then
-        print("[Layer3] 注销关卡死亡处理")
     end
 end
 
@@ -996,52 +894,44 @@ function Layer3.shutdown()
     local wasStarted = Layer3.started
     -- Bug #10: 添加防御性检查，防止重复调用和 nil 值错误
     if not Layer3.started then
-        print("[Layer3] shutdown() 已调用或未启动，跳过清理")
         return
     end
     Layer3.started = false
-    print("[Layer3] === 关闭关卡 ===")
     
     -- 刷怪系统完整清理（停止并销毁计时器 / 清除单位实体 / 释放记录 / 重置状态）
     if Layer3.cleanupMobSpawnSystem and type(Layer3.cleanupMobSpawnSystem) == "function" then
         pcall(function() Layer3.cleanupMobSpawnSystem("关卡关闭") end)
     else
-        print("[Layer3] cleanupMobSpawnSystem 不存在，跳过刷怪清理")
     end
     
     -- 注销死亡监听（使用 pcall 防止注销时已失效的 event）
     if Layer3.unregisterLayer3DeathHandler and type(Layer3.unregisterLayer3DeathHandler) == "function" then
         pcall(function() Layer3.unregisterLayer3DeathHandler() end)
     else
-        print("[Layer3] unregisterLayer3DeathHandler 不存在，跳过注销")
     end
     
     -- 销毁计时器（防御性：先检查存在性和有效性）
     if Layer3.survivalTimer and type(Layer3.survivalTimer) == "table" then
         pcall(function() Layer3.cancelSurvivalTimer() end)
     else
-        print("[Layer3] survivalTimer 不存在或无效，跳过销毁")
     end
     
     -- 销毁事件矩形（防御性：先检查存在性和有效性）
     if Layer3.eventRect and type(Layer3.eventRect) == "table" then
         pcall(function() Layer3.destroyEventRect("shutdown") end)
     else
-        print("[Layer3] eventRect 不存在或无效，跳过销毁")
     end
     
     -- 销毁通关区域（防御性：先检查存在性和有效性）
     if Layer3.exitRect and type(Layer3.exitRect) == "table" then
         pcall(function() Layer3.destroyExitRegion() end)
     else
-        print("[Layer3] exitRect 不存在或无效，跳过销毁")
     end
     
     -- 销毁墙体（兜底：若未通过 onSurvivalTimeout 移除，则此处统一移除）
     if next(Layer3.wallMap) then
         pcall(function() Layer3.destroyWalls() end)
     else
-        print("[Layer3] wallMap 为空，无需销毁墙体")
     end
     
     -- 销毁额外事件（防御性：先检查数组有效性）
@@ -1053,7 +943,6 @@ function Layer3.shutdown()
         end
         Layer3.events = {}
     else
-        print("[Layer3] events 数组不存在或无效，跳过销毁")
     end
     
     -- 销毁占位矩形（防御性：先检查 table 有效性）
@@ -1067,16 +956,15 @@ function Layer3.shutdown()
         end
         Layer3.rectHandles = {}
     else
-        print("[Layer3] rectHandles 不存在或无效，跳过销毁")
     end
     
     -- 重置状态变量（防御性：检查是否为 table）
     if type(Layer3) == "table" then
         Layer3.triggered = false
         Layer3._teleporting = false
-        if not wasStarted and Layer3.finished then print("[Layer3] 关闭（通关后清理）") end
+        if not wasStarted and Layer3.finished then
+        end
     else
-        print("[Layer3] Layer3 模块不存在，跳过状态重置")
     end
 end
 
