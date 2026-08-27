@@ -792,7 +792,12 @@ end
 -- 按"玩家退出"结束场景执行刷怪系统完整清理
 function Layer3.registerSpawnLeaveHandler()
     if Layer3.spawnLeaveEvent then return end
-    Layer3.spawnLeaveEvent = Event:new(nil, EVENT_PLAYER_LEAVE, function()
+    -- Bug #8: 添加关卡检查，防止在其他关卡时误触发
+    local function onPlayerLeave()
+        if not GameInit or GameInit.currentLayer ~= 3 then
+            print("[Layer3] playerLeaveHandler: 当前不在关卡 3 (layer=" .. tostring(GameInit and GameInit.currentLayer or "nil") .. ")，跳过清理")
+            return
+        end
         if not Layer3.started or Layer3.finished then return end
         local p = cj.GetTriggerPlayer()
         if not p then return end
@@ -800,7 +805,8 @@ function Layer3.registerSpawnLeaveHandler()
         if pid < 0 or pid > 3 then return end  -- 仅用户玩家（0-3）退出触发
         print("[Layer3] 检测到玩家" .. pid .. "退出，按关卡结束场景清理刷怪系统")
         Layer3.cleanupMobSpawnSystem("玩家退出")
-    end)
+    end
+    Layer3.spawnLeaveEvent = Event:new(nil, EVENT_PLAYER_LEAVE, onPlayerLeave)
 end
 
 -- ============================================================
@@ -864,24 +870,27 @@ function Layer3.onAllPlayersDied()
     end
     
     -- 记录当前在线玩家（用于后续复活）
+    -- [重要] 使用两个独立表：onlinePlayersHash (pid -> true) 和 onlineHeroes (数组)
     local onlineList = GameInit and GameInit.getOnlinePlayers() or {}
-    Layer3.onlinePlayers = {}
+    Layer3.onlinePlayersHash = {}         -- pid -> true，用于快速查找玩家 ID
+    Layer3.onlineHeroes = {}              -- { {pid, hero}, ... }
+    
     for _, player in ipairs(onlineList) do
         if player and player:isPlaying() and player:isUser() then
             local pid = player:getId()
-            Layer3.onlinePlayers[pid] = true
-            -- 记录该玩家的所有英雄单位（用于复活）
+            Layer3.onlinePlayersHash[pid] = true   -- 记录玩家 ID（hash table）
+            
             -- [OOP] 使用 Group.new + enumPlayer 替代 cj.CreateGroup + cj.GroupEnumUnitsOfPlayer
             local g = Group:new()
             g:enumPlayer(player._handle)
             g:forEach(function(u) -- 纯 Lua 遍历，自动调用 validate 清理失效单位
                 if cj.IsUnitType(u, UNIT_TYPE_HERO) then
-                    table.insert(Layer3.onlinePlayers, { pid = pid, hero = u })
+                    table.insert(Layer3.onlineHeroes, { pid = pid, hero = u })
                 end
             end)
         end
     end
-    print(string.format("[Layer3] 记录在线玩家数量：%d", #Layer3.onlinePlayers))
+    print(string.format("[Layer3] 记录在线玩家数量：%d", #Layer3.onlinePlayersHash))
     
     -- 启动 10 秒倒计时后重启关卡
     Timer:new(10, false, function()Layer3.onReloadingLevel3()end)
@@ -889,6 +898,18 @@ end
 
 function Layer3.onReloadingLevel3()
     if Layer3.finished then return end
+    -- Bug #6: 添加关卡检查，防止在其他关卡意外调用
+    if not GameInit or GameInit.currentLayer ~= 3 then
+        print("[Layer3] onReloadingLevel3: 当前不在关卡 3 (layer=" .. tostring(GameInit and GameInit.currentLayer or "nil") .. ")，跳过")
+        return
+    end
+    -- Bug #6: 防重复调用（防止 onAllPlayersDied 内部多次触发）
+    if Layer3._isReloading then
+        print("[Layer3] onReloadingLevel3: 已在重启中 (layer=" .. tostring(GameInit.currentLayer) .. ")，跳过重复调用")
+        return
+    end
+    -- [重要] 重置 reload 标记为 false，防止 GameInit.startLayer3() 内部再次触发死亡事件导致无限递归
+    Layer3._isReloading = false
     print("[Layer3] === 10 秒倒计时结束，重启关卡 3...===")
     
     -- 广播重启消息
@@ -933,7 +954,7 @@ function Layer3.registerLayer3DeathHandler()
     -- 使用 Event.new 添加全局玩家单位死亡事件（Event.lua 已支持 nil 目标）
     local deathListenerAdded = nil
     
-    -- [OOP] 直接使用 Event:new(nil, EVENT_PLAYER_UNIT_DEATH, ...)注册全局事件
+    -- [OOP] 直接使用 Event:new(nil, EVENT_PLAYER_UNIT_DEATH, ...) 注册全局事件
     Layer3.deathHandler = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
         local dyingUnit = ev.unit or cj.GetTriggerUnit()
         if not dyingUnit then return end
@@ -946,6 +967,12 @@ function Layer3.registerLayer3DeathHandler()
         
         local pid = player:getId()
         if pid < 0 or pid > 3 then return end
+        
+        -- Bug #7: 添加关卡检查，防止在其他关卡时误触发
+        if not GameInit or GameInit.currentLayer ~= 3 then
+            print("[Layer3] deathHandler: 当前不在关卡 3 (layer=" .. tostring(GameInit and GameInit.currentLayer or "nil") .. ")，跳过死亡处理")
+            return
+        end
         
         -- 检查是否在关卡 3 中且未通关
         if Layer3.started and not Layer3.finished then
@@ -967,34 +994,90 @@ end
 
 function Layer3.shutdown()
     local wasStarted = Layer3.started
+    -- Bug #10: 添加防御性检查，防止重复调用和 nil 值错误
+    if not Layer3.started then
+        print("[Layer3] shutdown() 已调用或未启动，跳过清理")
+        return
+    end
     Layer3.started = false
-    print("[Layer3] 关闭")
+    print("[Layer3] === 关闭关卡 ===")
+    
     -- 刷怪系统完整清理（停止并销毁计时器 / 清除单位实体 / 释放记录 / 重置状态）
-    if Layer3.cleanupMobSpawnSystem then
-        Layer3.cleanupMobSpawnSystem("关卡关闭")
+    if Layer3.cleanupMobSpawnSystem and type(Layer3.cleanupMobSpawnSystem) == "function" then
+        pcall(function() Layer3.cleanupMobSpawnSystem("关卡关闭") end)
+    else
+        print("[Layer3] cleanupMobSpawnSystem 不存在，跳过刷怪清理")
     end
-    -- 注销死亡监听
-    Layer3.unregisterLayer3DeathHandler()
-    -- 销毁计时器
-    if Layer3.survivalTimer then Layer3.cancelSurvivalTimer() end
-    -- 销毁事件矩形
-    if Layer3.eventRect then Layer3.destroyEventRect("shutdown") end
-    -- 销毁通关区域
-    if Layer3.exitRect then Layer3.destroyExitRegion() end
+    
+    -- 注销死亡监听（使用 pcall 防止注销时已失效的 event）
+    if Layer3.unregisterLayer3DeathHandler and type(Layer3.unregisterLayer3DeathHandler) == "function" then
+        pcall(function() Layer3.unregisterLayer3DeathHandler() end)
+    else
+        print("[Layer3] unregisterLayer3DeathHandler 不存在，跳过注销")
+    end
+    
+    -- 销毁计时器（防御性：先检查存在性和有效性）
+    if Layer3.survivalTimer and type(Layer3.survivalTimer) == "table" then
+        pcall(function() Layer3.cancelSurvivalTimer() end)
+    else
+        print("[Layer3] survivalTimer 不存在或无效，跳过销毁")
+    end
+    
+    -- 销毁事件矩形（防御性：先检查存在性和有效性）
+    if Layer3.eventRect and type(Layer3.eventRect) == "table" then
+        pcall(function() Layer3.destroyEventRect("shutdown") end)
+    else
+        print("[Layer3] eventRect 不存在或无效，跳过销毁")
+    end
+    
+    -- 销毁通关区域（防御性：先检查存在性和有效性）
+    if Layer3.exitRect and type(Layer3.exitRect) == "table" then
+        pcall(function() Layer3.destroyExitRegion() end)
+    else
+        print("[Layer3] exitRect 不存在或无效，跳过销毁")
+    end
+    
     -- 销毁墙体（兜底：若未通过 onSurvivalTimeout 移除，则此处统一移除）
-    if next(Layer3.wallMap) then Layer3.destroyWalls() end
-    -- 销毁额外事件
-    for _, e in ipairs(Layer3.events) do if e and e.destroy then pcall(function() e:destroy() end) end end
-    Layer3.events = {}
-    -- 销毁占位矩形
-    for id, rect in pairs(Layer3.rectHandles) do
-        if rect then pcall(function() Event:destroyRect(rect) end) pcall(function() rect:destroy() end) end
-        Layer3.eventHandles[id] = nil
+    if next(Layer3.wallMap) then
+        pcall(function() Layer3.destroyWalls() end)
+    else
+        print("[Layer3] wallMap 为空，无需销毁墙体")
     end
-    Layer3.rectHandles = {}
-    Layer3.triggered = false
-    Layer3._teleporting = false
-    if not wasStarted and Layer3.finished then print("[Layer3] 关闭（通关后清理）") end
+    
+    -- 销毁额外事件（防御性：先检查数组有效性）
+    if Layer3.events and type(Layer3.events) == "table" then
+        for _, e in ipairs(Layer3.events) do
+            if e and type(e.destroy) == "function" then
+                pcall(function() e:destroy() end)
+            end
+        end
+        Layer3.events = {}
+    else
+        print("[Layer3] events 数组不存在或无效，跳过销毁")
+    end
+    
+    -- 销毁占位矩形（防御性：先检查 table 有效性）
+    if Layer3.rectHandles and type(Layer3.rectHandles) == "table" then
+        for id, rect in pairs(Layer3.rectHandles) do
+            if rect and type(rect) == "table" then
+                pcall(function() Event:destroyRect(rect) end)
+                pcall(function() rect:destroy() end)
+            end
+            Layer3.eventHandles[id] = nil
+        end
+        Layer3.rectHandles = {}
+    else
+        print("[Layer3] rectHandles 不存在或无效，跳过销毁")
+    end
+    
+    -- 重置状态变量（防御性：检查是否为 table）
+    if type(Layer3) == "table" then
+        Layer3.triggered = false
+        Layer3._teleporting = false
+        if not wasStarted and Layer3.finished then print("[Layer3] 关闭（通关后清理）") end
+    else
+        print("[Layer3] Layer3 模块不存在，跳过状态重置")
+    end
 end
 
 -- ============================================================
