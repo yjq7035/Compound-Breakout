@@ -3,13 +3,13 @@
 --
 -- 坐标：-11915.5,-1952.6 同时作为入口/复活/传送点（由 Layer2 通关后统一设置）
 --
--- 扩展（关卡3设定 2026-08-26）：
+-- 扩展（关卡 3 设定 2026-08-26）：
 --   1. 默认横墙 -11919.8,-5694.8  关卡启动时创建（B000 face 270）
 --   2. 活动横墙 -11919.4,-3450.2  默认不创建，事件触发后创建
 --   5. 事件矩形 左下 -12826.7,-5514.3 右上 -11014.0,-3705.4
---   6. 英雄进入事件矩形 -> 创建活动横墙 + 真计时器(剩余时间：5分钟)
+--   6. 英雄进入事件矩形 -> 创建活动横墙 + 真计时器 (剩余时间：5 分钟)
 --      到期后移除两堵墙，创建通关传送区域 -11925.0,-6154.3 500x300
---      全员进入后传送至关卡4 -8518.2,747.9
+--      全员进入后传送至关卡 4 -8518.2,747.9
 --
 -- 职责：
 --   1. 存放第三关卡坐标（入口/复活、传送）
@@ -31,24 +31,21 @@ Layer3.revivePos   = { x = -11915.5, y = -1952.6, name = "关卡 3 复活点" }
 Layer3.teleportPos = { x = -11915.5, y = -1952.6, name = "关卡 3 传送点" }
 Layer3.potionShopPos = { x = -11915.5, y = -1952.6, name = "关卡 3 药剂商店（占位）" }
 
--- 墙体坐标（关卡3设定）
+-- 墙体坐标（关卡 3 设定）
 Layer3.defaultWallPos = { x = -11919.8, y = -5694.8, name = "默认横墙" }
 Layer3.activeWallPos  = { x = -11919.4, y = -3450.2, name = "活动横墙" }
 
--- 事件矩形坐标（关卡3设定5）
+-- 事件矩形坐标（关卡 3 设定 5）
 Layer3.eventRectCoords = { left = -12826.7, bottom = -5514.3, right = -11014.0, top = -3705.4 }
 
--- 通关传送区域（关卡3设定6）
-Layer3.exitCenter = { x = -11925.0, y = -6154.3, w = 500, h = 300, name = "关卡3通关传送区域" }
+-- 通关传送区域（关卡 3 设定 6）
+Layer3.exitCenter = { x = -11925.0, y = -6154.3, w = 500, h = 300, name = "关卡 3 通关传送区域" }
 
 -- 关卡 4 入口（关卡 3 设定 6）
 Layer3.layer4EntryPos = { x = -8518.2, y = 747.9, name = "关卡 4 入口" }
 
--- 关卡失败处理相关变量
-Layer3.onlinePlayers = {}
-
 -- ============================================================
--- §2 矩形区域定义（Rect.new + 触发器事件）保留原6个占位
+-- §2 矩形区域定义（Rect.new + 触发器事件）保留原 6 个占位
 -- ============================================================
 -- 区域 1：左下 (-13445.5,-3497.3) -> 右上 (-12303.5,-3081.7)，中心 (-12874.5, -3289.5)
 -- 区域 2：左下 (-13432.5,-6231.9) -> 右上 (-13036.5,-3549.6)，中心 (-13234.5, -4890.75)
@@ -91,7 +88,7 @@ Layer3.wallMap = {}  -- index -> handle
 Layer3.started = false
 Layer3.finished = false
 Layer3.triggered = false
-Layer3.survivalDuration = 300 -- 5分钟
+Layer3.survivalDuration = 300 -- 5 分钟
 
 Layer3.eventRect = nil        -- Rect 对象
 Layer3.eventEvent = nil       -- Event 对象（Event:newRect 返回）
@@ -329,7 +326,7 @@ function Layer3.onEventTriggered(unit, player)
     end
     -- 创建活动横墙
     Layer3.createActiveWall()
-    -- 启动5分钟计时器
+    -- 启动 5 分钟计时器
     Layer3.startSurvivalTimer()
     -- 事件矩形为一次性，触发后销毁避免重复创建墙/计时器
     Layer3.destroyEventRect("事件已触发")
@@ -429,32 +426,26 @@ function Layer3.onAllPlayersEntered()
     for pid = 0, 3 do
         local p = Player:new(pid)
         if p:isPlaying() and p:isUser() then
-            local g = cj.CreateGroup()
-            cj.GroupEnumUnitsOfPlayer(g, p._handle, nil)
-            local u = cj.FirstOfGroup(g)
-            while u ~= nil do
+            -- 使用 Group.new + enumPlayer 替代 cj.CreateGroup + cj.GroupEnumUnitsOfPlayer
+            local g = Group:new()
+            g:enumPlayer(p._handle)
+            g:forEach(function(u) -- [OOP] 纯 Lua 遍历，自动调用 validate 清理失效单位
                 if cj.IsUnitType(u, UNIT_TYPE_HERO) then
-                    local moved = false
-                    if Unit and Unit.fromHandle then
-                        local ok, unitObj = pcall(Unit.fromHandle, u)
-                        if ok and unitObj and unitObj.setPosition then
-                            local ok2 = pcall(function() unitObj:setPosition(ex, ey) end)
-                            if ok2 then moved = true end
-                        end
-                    end
-                    if not moved then
-                        pcall(cj.SetUnitPosition, u, ex, ey)
-                        pcall(cj.SetUnitX, u, ex)
-                        pcall(cj.SetUnitY, u, ey)
-                    end
-                    if cj.GetLocalPlayer() == p._handle and Camera and Camera.panTo then
-                        pcall(function() Camera.panTo(ex, ey) end)
+                    -- 优先使用 OOP 封装层移动英雄（推荐）
+                    local unitObj = Unit.fromHandle(u)
+                    if unitObj and unitObj.setPosition then
+                        unitObj:setPosition(ex, ey)
                     end
                 end
-                cj.GroupRemoveUnit(g, u)
-                u = cj.FirstOfGroup(g)
-            end
-            cj.DestroyGroup(g)
+                -- 兜底：原生 API 移动
+                cj.SetUnitX(u, ex)
+                cj.SetUnitY(u, ey)
+                cj.SetUnitPosition(u, ex, ey)
+                -- 本地镜头跟随（异步操作）
+                if cj.GetLocalPlayer() == p._handle and Camera and Camera.panTo then
+                    pcall(function() Camera.panTo(ex, ey) end)
+                end
+            end)
             print(string.format("[Layer3] 玩家%d 英雄已传送至关卡 4 入口 %.1f,%.1f", pid, ex, ey))
         end
     end
@@ -499,25 +490,28 @@ function Layer3.start()
     Layer3.createEventRect()
     
     -- 注册关卡失败处理（玩家死亡时触发）
-    if GameInit then
+    if GameInit and GameInit.registerLayer3DeathHandler then
         GameInit.registerLayer3DeathHandler()
     end
 end
 
 -- ============================================================
--- §10 关卡失败处理（玩家死亡重置关卡）
+-- §10 关卡失败处理（所有在线玩家死亡重置关卡）
 -- ============================================================
 
 function Layer3.onAllPlayersDied()
+    -- 防止重复触发
     if Layer3.finished then return end
-    print("[Layer3] 所有在线玩家死亡，触发关卡重置！")
-    -- 广播消息
-    local msg = "关卡失败 - 所有玩家死亡！10 秒后将重启关卡 3..."
+    print("[Layer3] === 所有在线玩家死亡，触发关卡重置！")
+    
+    -- 广播失败消息（中央系统信息 + Player.sendAll）
+    local msg = "🚨 关卡失败 - 所有玩家死亡！10 秒后将重启关卡 3..."
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", msg, SystemMessage.COLOR_FAIL}}, 5.0)
     else
         Player.sendAll(msg)
     end
+    
     -- 记录当前在线玩家（用于后续复活）
     local onlineList = GameInit and GameInit.getOnlinePlayers() or {}
     Layer3.onlinePlayers = {}
@@ -525,55 +519,58 @@ function Layer3.onAllPlayersDied()
         if player and player:isPlaying() and player:isUser() then
             local pid = player:getId()
             Layer3.onlinePlayers[pid] = true
-            -- 记录该玩家的所有英雄单位
-            local g = cj.CreateGroup()
-            cj.GroupEnumUnitsOfPlayer(g, player._handle, nil)
-            local u = cj.FirstOfGroup(g)
-            while u ~= nil do
+            -- 记录该玩家的所有英雄单位（用于复活）
+            -- [OOP] 使用 Group.new + enumPlayer 替代 cj.CreateGroup + cj.GroupEnumUnitsOfPlayer
+            local g = Group:new()
+            g:enumPlayer(player._handle)
+            g:forEach(function(u) -- 纯 Lua 遍历，自动调用 validate 清理失效单位
                 if cj.IsUnitType(u, UNIT_TYPE_HERO) then
                     table.insert(Layer3.onlinePlayers, { pid = pid, hero = u })
                 end
-                cj.GroupRemoveUnit(g, u)
-                u = cj.FirstOfGroup(g)
-            end
-            cj.DestroyGroup(g)
+            end)
         end
     end
     print(string.format("[Layer3] 记录在线玩家数量：%d", #Layer3.onlinePlayers))
     
     -- 启动 10 秒倒计时后重启关卡
-    Timer:new(10, false, function()
-        Layer3.onReloadingLevel3()
-    end)
+    Timer:new(10, false, function()Layer3.onReloadingLevel3()end)
 end
 
 function Layer3.onReloadingLevel3()
     if Layer3.finished then return end
-    print("[Layer3] 10 秒倒计时结束，重启关卡 3...")
-    -- 广播消息
-    local msg = "关卡 3 即将重启！所有玩家将在复活点重生..."
+    print("[Layer3] === 10 秒倒计时结束，重启关卡 3...")
+    
+    -- 广播重启消息
+    local msg = "🔄 关卡 3 即将重启！所有玩家将在复活点重生..."
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", msg, SystemMessage.COLOR_WARN}}, 5.0)
     else
         Player.sendAll(msg)
     end
+    
     -- 销毁当前关卡的所有对象（墙体、事件矩形等）
     Layer3.shutdown()
+    
     -- 关闭所有玩家的英雄，等待重生
-    for _, player in ipairs(GameInit and GameInit.getOnlinePlayers() or {}) do
+    local onlinePlayers = GameInit and GameInit.getOnlinePlayers() or {}
+    for _, player in ipairs(onlinePlayers) do
         if player and player:isPlaying() then
-            -- 关闭玩家游戏，准备重生
-            pcall(function() player:closeGame(true) end)
-            print(string.format("[Layer3] 已关闭玩家：%s", player:getName()))
+            -- 关闭玩家游戏，准备重生（可选：使用 closeGame 或强制移除所有英雄）
+            pcall(function() 
+                if player.closeGame then 
+                    player.closeGame(true) 
+                end
+            end)
+            print(string.format("[Layer3] 已通知玩家：%s (PID=%d) 等待重生", player:getName(), player:getId()))
         end
     end
     
     -- 1 秒后重新加载关卡（通过 GameInit.startLayer3 重启）
     Timer:new(1, false, function()
         Layer3.reloading = true
-        print("[Layer3] 尝试重新加载关卡 3...")
-        if GameInit then
-            -- 简单方案：直接调用 startLayer3（会重置状态）
+        print("[Layer3] === 尝试重新加载关卡 3...")
+        if GameInit and GameInit.startLayer3 then
+            -- 直接调用 startLayer3（会重置状态并重新启动整个关卡）
             GameInit.startLayer3()
         end
         Layer3.reloading = false
@@ -582,36 +579,29 @@ end
 
 function Layer3.registerLayer3DeathHandler()
     print("[Layer3] 注册关卡死亡处理...")
-    -- 直接在全局事件中添加玩家死亡监听（避免依赖 GameInit.reviveEvent）
+    -- 使用 Event.new 添加全局玩家单位死亡事件（Event.lua 已支持 nil 目标）
     local deathListenerAdded = nil
     
-    if cj and cj.EnumGameEvents then
-        -- 使用 EnumGameEvents 添加玩家单位死亡事件
-        pcall(function()
-            cj.EnumGameEvents(EVENT_PLAYER_UNIT_DEATH, function(ev)
-                local dyingUnit = ev.unit
-                if not dyingUnit then return end
-                
-                -- 仅处理英雄单位且是玩家控制的在线用户
-                if not cj.IsUnitType(dyingUnit, UNIT_TYPE_HERO) then return end
-                
-                local player = Player.fromHandle(cj.GetOwningPlayer(dyingUnit))
-                if not player or not player:isUser() then return end
-                
-                local pid = player:getId()
-                if pid < 0 or pid > 3 then return end
-                
-                -- 检查是否在关卡 3 中且未通关
-                if Layer3.started and not Layer3.finished then
-                    print(string.format("[Layer3] 玩家 %d (PID=%d) 死亡，触发关卡失败处理", player:getName(), pid))
-                    Layer3.onAllPlayersDied()
-                end
-            end)
-        end)
-    else
-        -- 备用方案：如果 EnumGameEvents 不可用，尝试通过其他机制
-        print("[Layer3] EnumGameEvents 不可用，使用备用方法...")
-    end
+    -- [OOP] 直接使用 Event:new(nil, EVENT_PLAYER_UNIT_DEATH, ...)注册全局事件
+    Layer3.deathHandler = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
+        local dyingUnit = ev.unit or cj.GetTriggerUnit()
+        if not dyingUnit then return end
+        
+        -- 仅处理英雄单位且是玩家控制的在线用户
+        if not cj.IsUnitType(dyingUnit, UNIT_TYPE_HERO) then return end
+        
+        local player = Player.fromHandle(cj.GetOwningPlayer(dyingUnit))
+        if not player or not player:isUser() then return end
+        
+        local pid = player:getId()
+        if pid < 0 or pid > 3 then return end
+        
+        -- 检查是否在关卡 3 中且未通关
+        if Layer3.started and not Layer3.finished then
+            print(string.format("[Layer3] 玩家 %d (PID=%d) 死亡，触发关卡失败处理", player:getName(), pid))
+            Layer3.onAllPlayersDied()
+        end
+    end)
 end
 
 function Layer3.unregisterLayer3DeathHandler()
@@ -632,74 +622,7 @@ Layer3.shutdown = function(self)
 end
 
 -- ============================================================
--- §9 生命周期
--- ============================================================
-
--- 创建所有矩形区域触发器（使用 Rect:new + event）保留兼容
-function Layer3.createMobSpawnRects()
-    for _, rectDef in ipairs(Layer3.mobSpawnRects) do
-        local curDef = rectDef
-        if Layer3.rectHandles[curDef.id] then
-            local oldRect = Layer3.rectHandles[curDef.id]
-            pcall(function() Event:destroyRect(oldRect) end)
-            pcall(function() oldRect:destroy() end)
-            Layer3.eventHandles[curDef.id] = nil
-            print(string.format("[Layer3] 清理旧矩形区域 %s", curDef.name))
-        end
-        local rect = Rect:new(curDef.cx - curDef.width/2, curDef.cy - curDef.height/2, 
-                              curDef.cx + curDef.width/2, curDef.cy + curDef.height/2)
-        if not rect then
-            print(string.format("[Layer3] 创建矩形区域失败 %s", curDef.name))
-        else
-            Layer3.rectHandles[curDef.id] = rect
-            local onEnter = function(ev)
-                local unit = ev.unit or ev._unit or cj.GetEnteringUnit()
-                if not unit then return end
-                local player = Player.fromHandle(cj.GetOwningPlayer(unit))
-                if not player or not player:isUser() then return end
-                local pid = player:getId()
-                local playerName = player:getName() or string.format("玩家%d", pid)
-                print(string.format("[Layer3] 单位进入矩形区域 %s unit=%s owner=%s", curDef.name, Event.unitDesc(unit), playerName))
-            end
-            local event = Event:newRect(rect, onEnter)
-            if event then
-                Layer3.eventHandles[curDef.id] = event
-                print(string.format("[Layer3] 创建矩形区域触发器 %s -> %.1f,%.1f w=%d h=%d", 
-                                   curDef.name, rect.x, rect.y, rect.width, rect.height))
-            else
-                print(string.format("[Layer3] 绑定事件失败 区域 %s id=%s", curDef.name, curDef.id))
-            end
-        end
-    end
-    if Layer3.eventHandles then
-        local count = 0; for _ in pairs(Layer3.eventHandles) do count = count + 1 end
-        print(string.format("[Layer3] 矩形区域触发器已启动，共 %d 个", count))
-    end
-end
-
-function Layer3.destroyMobSpawnRects()
-    for id, rect in pairs(Layer3.rectHandles) do
-        if rect then pcall(function() Event:destroyRect(rect) end) pcall(function() rect:destroy() end) Layer3.eventHandles[id] = nil end
-    end
-    Layer3.rectHandles = {}
-end
-
-function Layer3.destroyMobSpawnRectById(id, reason)
-    local rect = Layer3.rectHandles[id]
-    if rect then pcall(function() Event:destroyRect(rect) end) pcall(function() rect:destroy() end) Layer3.eventHandles[id] = nil Layer3.rectHandles[id] = nil print(string.format("[Layer3] 销毁矩形区域 id=%s %s", id, reason or "")) end
-end
-
-function Layer3.destroyMobSpawnEventById(id)
-    local event = Layer3.eventHandles[id]
-    if event then pcall(function() Event:destroyRect(event) end) Layer3.eventHandles[id] = nil print(string.format("[Layer3] 销毁矩形区域事件 id=%s", id)) end
-end
-
-function Layer3.cleanupMobSpawnRects()
-    if Layer3.destroyMobSpawnRects then Layer3.destroyMobSpawnRects() end
-end
-
--- ============================================================
--- §10 兼容别名
+-- §11 兼容别名
 -- ============================================================
 
 Layer3EntryPos    = Layer3.entryPos
