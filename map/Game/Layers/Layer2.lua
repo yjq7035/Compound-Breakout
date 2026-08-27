@@ -332,7 +332,6 @@ local function spawnGeneric(posKey, unitsKey, gridFunc, facing, label, detail, e
     local count = #Layer2[unitsKey]
     local suffix = enhanced and " (默认无敌且暂停，朝向 " .. facing .. "，增强属性)" or string.format(" (默认无敌且暂停，朝向 %d)", facing)
     -- detail 已包含单位构成说明
-    print(string.format("[Layer2] %s已创建 中心%.1f,%.1f %s count=%d%s", label, cx, cy, detail, count, suffix))
     return Layer2[unitsKey]
 end
 
@@ -344,17 +343,11 @@ local function createOne(w)
     if not w or not w.x or not w.y or not w.id then return nil end
     local face = w.face or (w.dir == "H" and 270 or 0)
     local h = cj.CreateDestructable(c2i(w.id), w.x, w.y, face, 1, 0)
-    if h then
-        print(string.format("[Layer2] 力量墙已创建 %s id=%s at %.1f,%.1f face=%d", w.name or w.dir, w.id, w.x, w.y, face))
-    else
-        print(string.format("[Layer2] 力量墙创建失败 %s id=%s at %.1f,%.1f", w.name or w.dir, w.id, w.x, w.y))
-    end
     return h
 end
 
 function Layer2.createWalls()
     if #Layer2.handles > 0 then
-        print("[Layer2] 墙体已存在，跳过 count=" .. #Layer2.handles)
         return Layer2.handles
     end
     Layer2.handles = {}
@@ -363,14 +356,9 @@ function Layer2.createWalls()
         local h = createOne(w)
         if h then
             table.insert(Layer2.handles, h)
-            local idx = w.index or i
-            if Layer2.wallMap[idx] then
-                print(string.format("[Layer2] 警告 index=%s 重复 已覆盖旧句柄 walls[%d]=%s", tostring(idx), i, w.name or "?"))
-            end
-            Layer2.wallMap[idx] = h
+            Layer2.wallMap[w.index or i] = h
         end
     end
-    print(string.format("[Layer2] 第二关卡墙体创建完成 count=%d/%d", #Layer2.handles, #Layer2.walls))
     return Layer2.handles
 end
 
@@ -379,7 +367,9 @@ function Layer2.destroyWalls()
     local n = #Layer2.handles
     Layer2.handles = {}
     Layer2.wallMap = {}
-    if n > 0 then print("[Layer2] 第二关卡墙体已移除 count=" .. n) end
+    if n > 0 then
+        --print("[Layer2] 第二关卡墙体已移除 count=" .. n)
+    end
 end
 
 function Layer2.getCount() return #Layer2.handles end
@@ -403,12 +393,6 @@ function Layer2.removeWallByIndex(index, reason)
         for k, vh in ipairs(Layer2.handles) do
             if vh == h then table.remove(Layer2.handles, k) break end
         end
-        print(string.format("[Layer2] 墙已移除 %s index=%s at %.1f,%.1f reason=%s",
-            wName, tostring(index), w and w.x or 0, w and w.y or 0, reason or ""))
-        if SystemMessage and SystemMessage.send then
-            local wallMsg = string.format("力量墙已销毁 - %s - %s", reason or wName, wName)
-            SystemMessage.send({{"STR", wallMsg, SystemMessage.COLOR_INFO}}, 3.0)
-        end
         return true
     else
         -- 兜底：wallMap 缺失时尝试按坐标枚举可破坏物直接删除（防 Create 失败但地图仍有编辑器放置的墙）
@@ -429,7 +413,6 @@ function Layer2.removeWallByIndex(index, reason)
                 pcall(function() cj.RemoveRect(rect) end)
             end
             if found > 0 then
-                print(string.format("[Layer2] 墙兜底枚举删除 %s index=%s at %.1f,%.1f count=%d reason=%s", wName, tostring(index), w.x, w.y, found, reason or ""))
                 -- 同步清理 handles 中可能残留但 wallMap 已空的情况
                 for k = #Layer2.handles, 1, -1 do
                     local vh = Layer2.handles[k]
@@ -444,28 +427,11 @@ function Layer2.removeWallByIndex(index, reason)
                 return true
             end
         end
-        -- 输出当前 wallMap 快照便于排查
-        local keys = {}
-        for k in pairs(Layer2.wallMap) do table.insert(keys, tostring(k)) end
-        table.sort(keys)
-        print(string.format("[Layer2] 墙已不存在或已移除 %s index=%s reason=%s wallMap keys={%s} handles=%d",
-            wName, tostring(index), reason or "", table.concat(keys, ","), #Layer2.handles))
         return false
     end
 end
 
--- 诊断：打印当前墙体状态
-function Layer2.dumpWalls()
-    print(string.format("[Layer2] dumpWalls handles=%d", #Layer2.handles))
-    for _, w in ipairs(Layer2.walls) do
-        local h = Layer2.wallMap[w.index]
-        print(string.format("  index=%s name=%s at %.1f,%.1f handle=%s", tostring(w.index), w.name, w.x, w.y, h and tostring(h) or "nil"))
-    end
-    local keys = {}
-    for k in pairs(Layer2.wallMap) do table.insert(keys, tostring(k)) end
-    table.sort(keys)
-    print("[Layer2] wallMap keys={" .. table.concat(keys, ",") .. "}")
-end
+
 
 -- 最近墙匹配移除（兼容旧调用，内部转按 index 删除）
 function Layer2.removeWallNear(tx, ty, reason)
@@ -478,9 +444,6 @@ function Layer2.removeWallNear(tx, ty, reason)
     if not bestWall then return false end
     -- 复用按 index 精确删除，保持日志/ handles 一致
     local ok = Layer2.removeWallByIndex(bestWall.index, reason)
-    if ok then
-        print(string.format("[Layer2] removeWallNear 兼容路径 最近墙 %s (%.1f 码) index=%s tx=%.1f,%.1f", bestWall.name, bestDist, tostring(bestWall.index), tx, ty))
-    end
     return ok
 end
 
@@ -887,7 +850,6 @@ function Layer2.createExitRegion()
     local cx, cy, w, h = Layer2.exitCenter.x, Layer2.exitCenter.y, Layer2.exitCenter.w, Layer2.exitCenter.h
     Layer2.exitRect = Rect:newCenter(cx, cy, w, h)
     Layer2.enteredPlayers = {}
-    print(string.format("[Layer2] 通关区域已创建 中心 %.1f,%.1f 尺寸 %dx%d", cx, cy, w, h))
 
     local function onEnter(ev)
         if Layer2.finished then return end
@@ -902,7 +864,6 @@ function Layer2.createExitRegion()
         if not Layer2.enteredPlayers[pid] then
             Layer2.enteredPlayers[pid] = true
             isNew = true
-            print(string.format("[Layer2] 玩家%d 进入通关区域 [%d/%d]", pid, Layer2.getEnteredCount(), Layer2.getOnlineCount()))
         end
         -- 中央系统信息提示：谁已就绪 + 等待其余人数（与关卡1一致）
         if isNew and SystemMessage and SystemMessage.send then
@@ -939,7 +900,6 @@ end
 function Layer2.onAllPlayersEntered()
     if Layer2.finished then return end
     Layer2.finished = true
-    print("[Layer2] 所有玩家已进入通关区域，关卡 2 通关！")
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", "关卡 2 通关！", SystemMessage.COLOR_SUCCESS}}, 3.0)
     else
@@ -949,7 +909,6 @@ function Layer2.onAllPlayersEntered()
     -- 传送至关卡 3 入口：用 Unit 坐标移动（修复 SetPlayerStartLocationX/Y 不存在报错，与关卡1保持一致）
     local entry = Layer3 and Layer3.entryPos or { x = -11915.5, y = -1952.6 }
     local ex, ey = entry.x, entry.y
-    print(string.format("[Layer2] 准备传送至关卡 3 入口 %.1f,%.1f", ex, ey))
     for pid = 0, 3 do
         local p = Player:new(pid)
         if p:isPlaying() and p:isUser() then
@@ -985,7 +944,6 @@ function Layer2.onAllPlayersEntered()
                 u = cj.FirstOfGroup(g)
             end
             cj.DestroyGroup(g)
-            print(string.format("[Layer2] 玩家%d 英雄已传送至关卡 3 入口 %.1f,%.1f", pid, ex, ey))
         end
     end
 
@@ -1021,13 +979,12 @@ local function registerBoss11DeathEvent()
         if not isNear and not isHandleMatch then return end
 
         Layer2.boss11Killed = true
-        print("[Layer2] 11区Boss nn13 已击杀")
         if SystemMessage and SystemMessage.send then
-            SystemMessage.send({{"STR", "11区Boss已击杀", SystemMessage.COLOR_SUCCESS}}, 3.0)
+            SystemMessage.send({{"STR", "11 区 Boss 已击杀", SystemMessage.COLOR_SUCCESS}}, 3.0)
         end
         -- 销毁12号墙（横墙 2）
         Layer2.removeWallByIndex(12, "11区Boss击杀")
-        print("[Layer2] 12号墙已移除（11区Boss击杀）")
+        -- --print("[Layer2] 12号墙已移除（11区Boss击杀）")
 
         -- 清理该Boss残留
         Layer2.clearMobSpawn11()
@@ -1051,8 +1008,8 @@ function Layer2.start()
     Layer2.events = {}
     if Layer2.exitRect then Layer2.destroyExitRegion() end
     Layer2.enteredPlayers = {}
-    print(string.format("[Layer2] 启动 入口/复活 %.1f,%.1f 药剂商店 %.1f,%.1f",
-        Layer2.entryPos.x, Layer2.entryPos.y, Layer2.potionShopPos.x, Layer2.potionShopPos.y))
+    -- --print(string.format("[Layer2] 启动 入口/复活 %.1f,%.1f 药剂商店 %.1f,%.1f",
+        -- Layer2.entryPos.x, Layer2.entryPos.y, Layer2.potionShopPos.x, Layer2.potionShopPos.y))
     Layer2.createWalls()
     Layer2.spawnAllMobSpawns()
     registerBoss11DeathEvent()
@@ -1079,7 +1036,7 @@ function Layer2.shutdown()
     Layer2.clearAllMobSpawns()
     Layer2.destroyMobSpawnRects()
     Layer2.destroyTriggerAreaBL()
-    if wasStarted then print("[Layer2] 关闭") else print("[Layer2] 关闭（通关后清理）") end
+    -- if wasStarted then --print("[Layer2] 关闭") else print("[Layer2] 关闭（通关后清理）") end
 end
 
 -- ============================================================
@@ -1100,7 +1057,7 @@ function Layer2.createTriggerAreaBL()
     
     -- 创建矩形区域
     triggerAreaBL = Rect:new(minX, minY, maxX, maxY)
-    print(string.format("[Layer2] 触发区域已创建 左下角：%.1f,%.1f 右上角：%.1f,%.1f", minX, minY, maxX, maxY))
+    -- --print(string.format("[Layer2] 触发区域已创建 左下角：%.1f,%.1f 右上角：%.1f,%.1f", minX, minY, maxX, maxY))
     
     -- 设置单位进入事件（回调接收 Event 对象，通过 self.unit 获取进入的单位）
     triggerEventBL = Event:newRect(triggerAreaBL, function(ev)
@@ -1114,15 +1071,15 @@ function Layer2.createTriggerAreaBL()
         local pid = player:getId()
         local playerName = player:getName() or string.format("玩家%d", pid)
         
-        print(string.format("[Layer2] 单位进入触发区域 unit=%s owner=%s", Event.unitDesc(unit), playerName))
+        -- --print(string.format("[Layer2] 单位进入触发区域 unit=%s owner=%s", Event.unitDesc(unit), playerName))
         
         -- 按 index 精确销毁绑定墙（竖墙 1 index=1 对应刷怪区域 1）并激活1号刷怪下达追击
         local tx, ty = cj.GetUnitX(unit), cj.GetUnitY(unit)
-        if Layer2.removeWallByIndex(1, "触发区域") then
-            print("[Layer2] 竖墙 1 已销毁（触发区域 index=1）")
-        else
-            print("[Layer2] 竖墙 1 已不存在（index=1）仍激活刷怪")
-        end
+        -- if Layer2.removeWallByIndex(1, "触发区域") then
+            --print("[Layer2] 竖墙 1 已销毁（触发区域 index=1）")
+        -- else
+            --print("[Layer2] 竖墙 1 已不存在（index=1）仍激活刷怪")
+        -- end
         Layer2.activateMobSpawn1(tx, ty)
         
         -- 删除区域和事件，避免其他单位进入造成重复触发
@@ -1130,15 +1087,15 @@ function Layer2.createTriggerAreaBL()
         triggerAreaBL = nil
         triggerEventBL = nil
         if rectToClean then
-            print("[Layer2] 触发区域已销毁")
+            -- --print("[Layer2] 触发区域已销毁")
             Event:destroyRect(rectToClean)
             rectToClean:destroy()
-            print("[Layer2] 触发器事件已销毁")
+            -- --print("[Layer2] 触发器事件已销毁")
         end
     end)
     
     if triggerEventBL then
-        print("[Layer2] 触发器事件已启动")
+        -- --print("[Layer2] 触发器事件已启动")
     end
     
     return triggerAreaBL, triggerEventBL
@@ -1181,8 +1138,8 @@ function Layer2.createMobSpawnRects()
             local wdef = nil
             for _, ww in ipairs(Layer2.walls) do if ww.index == curDef.id then wdef = ww; break end end
             local wName = wdef and wdef.name or "未知墙"
-            print(string.format("[Layer2] 绑定检查 区域 %s id=%s -> 墙 %s index=%s 状态=%s rectCenter=%.1f,%.1f w=%d h=%d",
-                curDef.name, tostring(curDef.id), wName, tostring(curDef.id), wallExists, cx, cy, width, height))
+            --print(string.format("[Layer2] 绑定检查 区域 %s id=%s -> 墙 %s index=%s 状态=%s rectCenter=%.1f,%.1f w=%d h=%d",
+                -- curDef.name, tostring(curDef.id), wName, tostring(curDef.id), wallExists, cx, cy, width, height))
         end
         
         -- 设置单位进入事件（使用 event 创建区域事件）
@@ -1194,23 +1151,23 @@ function Layer2.createMobSpawnRects()
             local player = Player.fromHandle(cj.GetOwningPlayer(unit))
             if not player or not player:isUser() then return end
             
-            local pid = player:getId()
-            local playerName = player:getName() or string.format("玩家%d", pid)
+            -- local pid = player:getId()
+            -- local playerName = player:getName() or string.format("玩家%d", pid)
             
-            print(string.format("[Layer2] 单位进入刷怪区域 %s unit=%s owner=%s", curDef.name, Event.unitDesc(unit), playerName))
+            -- --print(string.format("[Layer2] 单位进入刷怪区域 %s unit=%s owner=%s", curDef.name, Event.unitDesc(unit), playerName))
             
             local tx, ty = cj.GetUnitX(unit), cj.GetUnitY(unit)
             -- 按 index 精确删除绑定墙（walls[].index == 区域id）
-            print(string.format("[Layer2] 触发前 wallMap[%s]=%s handles=%d", tostring(curDef.id), tostring(Layer2.wallMap[curDef.id]), #Layer2.handles))
-            local ok = Layer2.removeWallByIndex(curDef.id, curDef.name)
-            print(string.format("[Layer2] 触发后 wallMap[%s]=%s ok=%s", tostring(curDef.id), tostring(Layer2.wallMap[curDef.id]), tostring(ok)))
+            -- --print(string.format("[Layer2] 触发前 wallMap[%s]=%s handles=%d", tostring(curDef.id), tostring(Layer2.wallMap[curDef.id]), #Layer2.handles))
+            -- local ok = Layer2.removeWallByIndex(curDef.id, curDef.name)
+            --print(string.format("[Layer2] 触发后 wallMap[%s]=%s ok=%s", tostring(curDef.id), tostring(Layer2.wallMap[curDef.id]), tostring(ok)))
             -- 激活对应编号的刷怪点并让怪物攻击移动到触发者位置
             Layer2.activateMobSpawn(curDef.id, tx, ty)
 
             -- 一次性触发：销毁该区域与事件，防止重复触发
             local r = mobSpawnRects[curDef.id]
             if r then
-                print(string.format("[Layer2] 刷怪区域 %s 已触发，销毁区域防止重复", curDef.name))
+                --print(string.format("[Layer2] 刷怪区域 %s 已触发，销毁区域防止重复", curDef.name))
                 Event:destroyRect(r)
                 r:destroy()
                 mobSpawnRects[curDef.id] = nil
@@ -1218,18 +1175,18 @@ function Layer2.createMobSpawnRects()
             end
         end)
         
-        if event then
-            print(string.format("[Layer2] 刷怪区域 %s (%.1f,%.1f) 触发器已启动", curDef.name, cx, cy))
-        else
-            print(string.format("[Layer2] 刷怪区域 %s 创建失败", curDef.name))
-        end
+        -- if event then
+        --     --print(string.format("[Layer2] 刷怪区域 %s (%.1f,%.1f) 触发器已启动", curDef.name, cx, cy))
+        -- else
+        --     --print(string.format("[Layer2] 刷怪区域 %s 创建失败", curDef.name))
+        -- end
         
         -- 存储句柄
         mobSpawnRects[curDef.id] = rect
         mobSpawnEvents[curDef.id] = event
     end
     
-    print(string.format("[Layer2] 共创建%d个刷怪矩形区域触发器", #Layer2.mobSpawnRects))
+    --print(string.format("[Layer2] 共创建%d个刷怪矩形区域触发器", #Layer2.mobSpawnRects))
 end
 
 --- 删除所有刷怪矩形区域触发器
@@ -1239,25 +1196,24 @@ function Layer2.destroyMobSpawnRects()
             -- 销毁矩形区域（Event:destroyRect 已销毁对应触发器与 region）
             Event:destroyRect(rect)
             rect:destroy()
-            print(string.format("[Layer2] 刷怪区域 %d 已销毁", id))
+            --print(string.format("[Layer2] 刷怪区域 %d 已销毁", id))
         end
     end
     -- mobSpawnEvents 与 mobSpawnRects 共享同一 trigger（Event:newRect复用），无需二次 Event:destroy
     mobSpawnRects = {}
     mobSpawnEvents = {}
     
-    print(string.format("[Layer2] 共销毁%d个刷怪矩形区域触发器", #Layer2.mobSpawnRects))
+    --print(string.format("[Layer2] 共销毁%d个刷怪矩形区域触发器", #Layer2.mobSpawnRects))
 end
 
 --- 通用激活刷怪点函数（根据 ID，透传目标坐标以便下达攻击移动）
 function Layer2.activateMobSpawn(id, tx, ty)
     local spawnFuncName = "activateMobSpawn" .. id
     local func = Layer2[spawnFuncName]
-    if func then
-        func(tx, ty)
-    else
-        print(string.format("[Layer2] 未找到刷怪点 %d 的激活函数", id))
-    end
+    if func then func(tx, ty) end
+    -- else
+        --print(string.format("[Layer2] 未找到刷怪点 %d 的激活函数", id))
+    -- end
 end
 
 return Layer2
