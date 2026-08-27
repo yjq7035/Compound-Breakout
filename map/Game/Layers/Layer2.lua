@@ -254,25 +254,22 @@ local function clearUnits(unitsKey, label)
     end
     local n = #list
     Layer2[unitsKey] = {}
-    if n > 0 then print(string.format("[Layer2] %s已清理 count=%d", label, n)) end
 end
 
 local function activateUnits(unitsKey, label, tx, ty)
     local list = Layer2[unitsKey]
     if not list then return end
     
-    print(string.format("[Layer2] %s 待激活 count=%d", label, #list))
+
     
     for _, u in ipairs(list) do
         if not u or not u._handle then 
-            print(string.format("[Layer2] %s 单位不存在，跳过", label))
             goto continue_loop
         end
         
         -- 移除无敌：优先 Unit 接口，失败回退到原生（规避flag==false的旧封装bug已修复，此处双保险）
         local okInv = pcall(function() u:setInvulnerable(false) end)
         if not okInv and u._handle then pcall(function() cj.SetUnitInvulnerable(u._handle, false) end) end
-        
         -- 解除暂停：PauseUnit(false) 为唯一正确路径，setPauseState 仅作兼容
         local okPause = false
         if u.pause then
@@ -304,12 +301,6 @@ local function activateUnits(unitsKey, label, tx, ty)
         end
         
         ::continue_loop::
-    end
-    
-    if tx and ty then
-        print(string.format("[Layer2] %s 已激活并下达攻击移动到 %.1f,%.1f count=%d", label, tx, ty, #list))
-    else
-        print(string.format("[Layer2] %s 已激活 count=%d", label, #list))
     end
 end
 
