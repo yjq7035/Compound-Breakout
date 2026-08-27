@@ -10,6 +10,10 @@
 --   6. 英雄进入事件矩形 -> 创建活动横墙 + 真计时器 (剩余时间：5 分钟)
 --      到期后移除两堵墙，创建通关传送区域 -11925.0,-6154.3 500x300
 --      全员进入后传送至关卡 4 -8518.2,747.9
+--   7. 活动刷怪系统（2026-08-27）：活动事件触发后启动 1 秒/次高精度真实计时器，
+--      按玩家4→玩家5→玩家6→玩家7（0-based pid 4,5,6,7）轮转创建 u4dW/hZ5u，
+--      每归属玩家上限 20 个单位（满员递交下一位，全员满员跳过并告警），
+--      同步记录生成信息，关卡 3 结束时完整清理
 --
 -- 职责：
 --   1. 存放第三关卡坐标（入口/复活、传送）
@@ -328,6 +332,8 @@ function Layer3.onEventTriggered(unit, player)
     Layer3.createActiveWall()
     -- 启动 5 分钟计时器
     Layer3.startSurvivalTimer()
+    -- 7. 启动每秒刷怪系统（高精度真实计时器，u4dW/hZ5u 归属轮转）
+    Layer3.startMobSpawnSystem()
     -- 事件矩形为一次性，触发后销毁避免重复创建墙/计时器
     Layer3.destroyEventRect("事件已触发")
 end
@@ -336,6 +342,8 @@ function Layer3.onSurvivalTimeout()
     if Layer3.finished then return end
     Layer3.finished = true
     print("[Layer3] 生存时间到期，关卡通关！")
+    -- 生存挑战结束：停止刷怪计时器（单位与记录留待关卡结束时统一清理）
+    Layer3.stopMobSpawnSystem("生存挑战完成")
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", "生存挑战完成！关卡 3 通关！", SystemMessage.COLOR_SUCCESS}}, 3.0)
     else
@@ -456,6 +464,244 @@ function Layer3.onAllPlayersEntered()
 end
 
 -- ============================================================
+-- §8b 活动刷怪系统（高精度真实计时器 · 关卡 3 专属）
+-- ============================================================
+-- 功能归属（2026-08-27）：本系统、本系统创建的所有 "u4dW"/"hZ5u" 单位实体、
+-- 单位分配/传递逻辑与生成记录，均为关卡 3 专属内容，随关卡 3 生命周期启停。
+--   触发：活动事件（英雄进入事件矩形）-> Layer3.startMobSpawnSystem()
+--   节奏：每秒 1 次；真计时器（useRealClock，同步游戏时钟驱动），不受帧率/游戏速度影响
+--   归属：玩家4→玩家5→玩家6→玩家7 固定轮转（0-based pid 4,5,6,7，与代码库
+--         "玩家%d"=pid 的既有命名一致；pid 4 为敌对电脑"怪物"槽位）
+--   上限：每归属玩家最多持有 20 个单位；目标玩家满员 -> 递交轮转下一位；
+--         全部满员 -> 跳过本次创建并记录警告日志
+--   记录：生成信息按创建时间顺序同步追加（计时器回调内直接 table.insert，
+--         同步阻塞，无任何异步，杜绝记录顺序混乱）
+
+-- 归属玩家轮转顺序（玩家4→玩家5→玩家6→玩家7，0-based pid）
+Layer3.SPAWN_OWNER_PIDS = { 4, 5, 6, 7 }
+-- 刷怪单位类型（每 tick 交替创建）
+Layer3.SPAWN_UNIT_TYPES = { "u4dW", "hZ5u" }
+-- 每归属玩家单位持有上限
+Layer3.SPAWN_MAX_PER_PLAYER = 20
+
+-- 运行时状态
+Layer3.spawnTimer = nil        -- 高精度真实计时器（1 秒周期）
+Layer3.spawnTick = 0           -- 计时器 tick 计数（自启动起的秒数）
+Layer3.spawnSeq = 0            -- 创建序号（全局递增）
+Layer3.spawnRecords = {}       -- 生成记录列表（按创建时间顺序）
+Layer3.spawnUnits = {}         -- 已生成单位实体（清理用）
+Layer3.spawnLeaveEvent = nil   -- 玩家退出监听（玩家退出场景清理）
+Layer3._validSpawnRects = nil  -- 校验通过的刷怪矩形（init 时构建）
+
+-- 校验 mobSpawnRects 数据，返回有效矩形列表（id/cx/cy/width/height 齐全且宽高为正）
+local function validateSpawnRects()
+    local valid = {}
+    for _, r in ipairs(Layer3.mobSpawnRects) do
+        local ok = r and r.id ~= nil and r.cx ~= nil and r.cy ~= nil
+            and r.width ~= nil and r.height ~= nil
+            and r.width > 0 and r.height > 0
+        if ok then
+            table.insert(valid, r)
+        else
+            print(string.format("[Layer3] 刷怪矩形校验失败：id=%s cx=%s cy=%s width=%s height=%s",
+                tostring(r and r.id), tostring(r and r.cx), tostring(r and r.cy),
+                tostring(r and r.width), tostring(r and r.height)))
+        end
+    end
+    return valid
+end
+
+-- 当前轮转起点下标（每 tick 前进一位，保证固定顺序轮转）
+local function currentOwnerIndex()
+    local n = #Layer3.SPAWN_OWNER_PIDS
+    return ((Layer3.spawnTick - 1) % n) + 1
+end
+
+-- 统计某归属玩家当前持有的刷怪单位数量（u4dW/hZ5u，含存活与尸体）
+local function countMobsOfPlayer(pid)
+    local typeA = c2i(Layer3.SPAWN_UNIT_TYPES[1])
+    local typeB = c2i(Layer3.SPAWN_UNIT_TYPES[2])
+    local g = Group:new()
+    g:enumPlayer(cj.Player(pid), function(u)
+        local t = cj.GetUnitTypeId(u)
+        return t == typeA or t == typeB
+    end)
+    return #g._units
+end
+
+-- 在刷怪矩形内随机生成坐标（X、Y 均在区域范围内，0.1 精度）
+local function pickSpawnPoint()
+    local rects = Layer3._validSpawnRects
+    if not rects or #rects == 0 then
+        print("[Layer3] 刷怪失败：无有效刷怪矩形")
+        return nil, nil
+    end
+    local r = rects[math.random(1, #rects)]
+    local loX = math.floor((r.cx - r.width / 2) * 10)
+    local hiX = math.floor((r.cx + r.width / 2) * 10)
+    local loY = math.floor((r.cy - r.height / 2) * 10)
+    local hiY = math.floor((r.cy + r.height / 2) * 10)
+    return math.random(loX, hiX) / 10, math.random(loY, hiY) / 10
+end
+
+-- 同步追加生成记录（创建时间戳/单位ID/单位类型/初始坐标/归属玩家ID/创建序号）
+-- 计时器回调内直接 table.insert，同步阻塞执行，保证记录顺序与创建顺序严格一致
+local function recordSpawn(u, pid, x, y)
+    Layer3.spawnSeq = Layer3.spawnSeq + 1
+    local base = 0
+    if Time and Time.getGameStartTime then base = Time.getGameStartTime() or 0 end
+    local rec = {
+        seq       = Layer3.spawnSeq,                 -- 创建序号
+        timestamp = base + Layer3.spawnTick * 1000,  -- 创建时间戳（ms）
+        unitId    = cj.GetHandleId(u._handle),       -- 单位ID（句柄ID）
+        unitType  = u:getTypeCode(),                 -- 单位类型（u4dW/hZ5u）
+        x         = x,                               -- 初始坐标 X
+        y         = y,                               -- 初始坐标 Y
+        pid       = pid,                             -- 归属玩家 ID
+    }
+    table.insert(Layer3.spawnRecords, rec)  -- 同步追加，保证创建时间顺序
+    table.insert(Layer3.spawnUnits, u)      -- 单位实体登记（清理用）
+    return rec
+end
+
+-- 每秒回调：按固定顺序创建 1 个单位（含上限传递逻辑）
+local function onSpawnTick()
+    if Layer3.finished then return end
+    Layer3.spawnTick = Layer3.spawnTick + 1
+
+    -- 固定顺序 玩家4→5→6→7：从本轮起点依序查找未达上限的归属玩家
+    local n = #Layer3.SPAWN_OWNER_PIDS
+    local startIdx = currentOwnerIndex()
+    local targetPid = nil
+    for i = 0, n - 1 do
+        local pid = Layer3.SPAWN_OWNER_PIDS[((startIdx - 1 + i) % n) + 1]
+        if countMobsOfPlayer(pid) < Layer3.SPAWN_MAX_PER_PLAYER then
+            targetPid = pid
+            break
+        end
+    end
+
+    -- 所有归属玩家均达到上限：跳过本次创建并记录警告日志
+    if not targetPid then
+        print(string.format("[Layer3] 刷怪跳过（警告）：所有归属玩家均达到上限 %d 个（%s），本次不创建单位",
+            Layer3.SPAWN_MAX_PER_PLAYER, table.concat(Layer3.SPAWN_OWNER_PIDS, ",")))
+        return
+    end
+
+    local x, y = pickSpawnPoint()
+    if not x then
+        print("[Layer3] 刷怪失败：无法生成有效坐标，本次跳过")
+        return
+    end
+
+    -- 单位类型交替创建：奇数 tick -> u4dW，偶数 tick -> hZ5u
+    local utype = Layer3.SPAWN_UNIT_TYPES[(Layer3.spawnTick % 2 == 1) and 1 or 2]
+    local u = Unit:new(Player:new(targetPid), utype, x, y, math.random(0, 359))
+    if not u or not u._handle then
+        print(string.format("[Layer3] 刷怪失败：单位创建返回空 pid=%d type=%s at %.1f,%.1f", targetPid, utype, x, y))
+        return
+    end
+
+    local rec = recordSpawn(u, targetPid, x, y)
+    print(string.format("[Layer3] 刷怪 #%d tick=%d 单位=%s(%s) 归属=玩家%d 坐标=%.1f,%.1f",
+        rec.seq, Layer3.spawnTick, rec.unitType, rec.unitId, rec.pid, rec.x, rec.y))
+end
+
+-- 初始化（关卡 3 开始加载完成后调用）：计时器/计数器清零、记录列表初始化、
+-- mobSpawnRects 数据校验、玩家退出监听注册
+function Layer3.initMobSpawnSystem()
+    Layer3.spawnTimer = nil
+    Layer3.spawnTick = 0
+    Layer3.spawnSeq = 0
+    Layer3.spawnRecords = {}
+    Layer3.spawnUnits = {}
+    Layer3._validSpawnRects = validateSpawnRects()
+    Layer3.registerSpawnLeaveHandler()
+
+    print(string.format("[Layer3] 刷怪系统初始化完成：刷怪矩形 %d/%d 有效，归属轮转 %d 槽（玩家4→玩家5→玩家6→玩家7），每槽上限 %d 单位",
+        #Layer3._validSpawnRects, #Layer3.mobSpawnRects, #Layer3.SPAWN_OWNER_PIDS, Layer3.SPAWN_MAX_PER_PLAYER))
+end
+
+-- 启动刷怪系统（活动事件触发时调用）：创建每秒 1 次的高精度真实计时器
+function Layer3.startMobSpawnSystem()
+    if Layer3.spawnTimer and not Layer3.spawnTimer._dead then
+        print("[Layer3] 刷怪计时器已存在，跳过重复启动")
+        return Layer3.spawnTimer
+    end
+    -- 清理/退出后兜底重建校验列表（防止玩家退出清理后再触发活动事件时启动失败）
+    if not Layer3._validSpawnRects or #Layer3._validSpawnRects == 0 then
+        Layer3._validSpawnRects = validateSpawnRects()
+    end
+    if not Layer3._validSpawnRects or #Layer3._validSpawnRects == 0 then
+        print("[Layer3] 刷怪系统启动失败：无有效刷怪矩形（请检查 mobSpawnRects 配置）")
+        return nil
+    end
+    Layer3.registerSpawnLeaveHandler()
+    Layer3.spawnTick = 0
+    Layer3.spawnSeq = 0
+    -- 真计时器：useRealClock=true，同步游戏时钟驱动，不受帧率/游戏速度影响
+    local t = Timer:new(1.0, true, onSpawnTick, nil, true)
+    Layer3.spawnTimer = t
+    print("[Layer3] 刷怪系统启动：1 秒/次，归属顺序 玩家4→玩家5→玩家6→玩家7")
+    return t
+end
+
+-- 停止并销毁刷怪计时器（保留单位与记录，留待关卡结束统一清理）
+function Layer3.stopMobSpawnSystem(reason)
+    if Layer3.spawnTimer then
+        pcall(function() Layer3.spawnTimer:destroy() end)
+        Layer3.spawnTimer = nil
+        print("[Layer3] 刷怪计时器已停止并销毁 " .. (reason or ""))
+    end
+end
+
+-- 清除所有由本系统创建的单位实体
+function Layer3.clearMobSpawnUnits(reason)
+    local n = #Layer3.spawnUnits
+    for i = n, 1, -1 do
+        local u = Layer3.spawnUnits[i]
+        if u and u._handle then
+            pcall(function() u:destroy() end)
+        end
+    end
+    Layer3.spawnUnits = {}
+    if n > 0 then
+        print(string.format("[Layer3] 刷怪单位已清除 count=%d %s", n, reason or ""))
+    end
+end
+
+-- 完整清理（关卡 3 结束时调用，覆盖正常完成/玩家退出/异常中断）：停止并销毁计时器、
+-- 清除所有相关单位实体、释放记录数据、重置所有相关状态变量，防止内存泄漏或影响其他关卡
+function Layer3.cleanupMobSpawnSystem(reason)
+    Layer3.stopMobSpawnSystem(reason)
+    Layer3.clearMobSpawnUnits(reason)
+    Layer3.spawnRecords = {}
+    Layer3.spawnTick = 0
+    Layer3.spawnSeq = 0
+    Layer3._validSpawnRects = nil
+    if Layer3.spawnLeaveEvent then
+        pcall(function() Layer3.spawnLeaveEvent:destroy() end)
+        Layer3.spawnLeaveEvent = nil
+    end
+    print("[Layer3] 刷怪系统已完整清理（记录释放、状态重置）" .. (reason or ""))
+end
+
+-- 玩家退出场景：关卡 3 进行中（已启动未通关）有用户玩家退出时，
+-- 按"玩家退出"结束场景执行刷怪系统完整清理
+function Layer3.registerSpawnLeaveHandler()
+    if Layer3.spawnLeaveEvent then return end
+    Layer3.spawnLeaveEvent = Event:new(nil, EVENT_PLAYER_LEAVE, function()
+        if not Layer3.started or Layer3.finished then return end
+        local p = cj.GetTriggerPlayer()
+        if not p then return end
+        local pid = cj.GetPlayerId(p)
+        if pid < 0 or pid > 3 then return end  -- 仅用户玩家（0-3）退出触发
+        print("[Layer3] 检测到玩家" .. pid .. "退出，按关卡结束场景清理刷怪系统")
+        Layer3.cleanupMobSpawnSystem("玩家退出")
+    end)
+end
+
+-- ============================================================
 -- §9 生命周期
 -- ============================================================
 
@@ -471,6 +717,7 @@ function Layer3.start()
     if Layer3.survivalTimer then Layer3.cancelSurvivalTimer() end
     if Layer3.exitRect then Layer3.destroyExitRegion() end
     if Layer3.eventRect then Layer3.destroyEventRect("重启清理") end
+    if Layer3.cleanupMobSpawnSystem then Layer3.cleanupMobSpawnSystem("重启清理") end
     -- 清理旧 mob 占位
     for id, rect in pairs(Layer3.rectHandles) do
         if rect then pcall(function() Event:destroyRect(rect) end) pcall(function() rect:destroy() end) end
@@ -488,6 +735,8 @@ function Layer3.start()
     Layer3.createDefaultWall()
     -- 5. 创建事件矩形（等待英雄进入）
     Layer3.createEventRect()
+    -- 7. 刷怪系统初始化（计数器清零 / 记录列表初始化 / mobSpawnRects 校验）
+    Layer3.initMobSpawnSystem()
     
     -- 注册关卡失败处理（玩家死亡时触发）
     if GameInit and GameInit.registerLayer3DeathHandler then
@@ -616,6 +865,10 @@ Layer3.shutdown = function(self)
     local wasStarted = self.started
     self.started = false
     print("[Layer3] 关闭")
+    -- 刷怪系统完整清理（停止并销毁计时器 / 清除单位实体 / 释放记录 / 重置状态）
+    if Layer3.cleanupMobSpawnSystem then
+        Layer3.cleanupMobSpawnSystem("关卡关闭")
+    end
     -- 注销死亡监听
     Layer3.unregisterLayer3DeathHandler()
     -- ... 其他清理代码 ...
