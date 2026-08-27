@@ -517,12 +517,17 @@ end
 local function countMobsOfPlayer(pid)
     local typeA = c2i(Layer3.SPAWN_UNIT_TYPES[1])
     local typeB = c2i(Layer3.SPAWN_UNIT_TYPES[2])
-    local g = Group:new()
-    g:enumPlayer(cj.Player(pid), function(u)
-        local t = cj.GetUnitTypeId(u)
-        return t == typeA or t == typeB
+    -- 直接使用底层表枚举，避免 Player handle 问题
+    local count = 0
+    Group._forEachPoolUnit(function(u)
+        if u and cj.GetPlayerId(cj.GetOwningPlayer(u)) == pid then
+            local t = cj.GetUnitTypeId(u)
+            if t == typeA or t == typeB then
+                count = count + 1
+            end
+        end
     end)
-    return #g._units
+    return count
 end
 
 -- 在刷怪矩形内随机生成坐标（X、Y 均在区域范围内，0.1 精度）
@@ -582,50 +587,76 @@ local function onSpawnTick()
     if Layer3.finished then return end
     Layer3.spawnTick = Layer3.spawnTick + 1
 
-    -- ===== 新增阶段系统逻辑 =====
-    -- 统计所有刷怪单位的总数
-    local totalMobs = getMobCount()
-    
-    -- 判断是否进入下一阶段的转换条件（每阶段 PHASE_MOBS_PER_STAGE 个单位）
-    if totalMobs > 0 and not Layer3._phaseTransitionPending then
-        local targetPhase = math.ceil(totalMobs / Layer3.PHASE_MOBS_PER_STAGE)
-        -- 只允许从 1 阶段进入 2 阶段（可后续扩展更多阶段）
-        if targetPhase > Layer3.currentPhase and targetPhase <= 2 then
-            Layer3._phaseTransitionPending = true
-            print(string.format("[Layer3] 检测到总单位数 %d，准备进入第%d阶段", totalMobs, targetPhase))
+    -- ===== 阶段系统逻辑（修复版）=====
+    -- 统计总数：存活数 + 总生成数双保险（上限 80 场景下 alive==spawned；击杀较多时 spawned 更可靠）
+    local totalAlive = getMobCount()
+    local totalSpawned = Layer3.spawnSeq or #Layer3.spawnUnits
+    local effectiveTotal = math.max(totalAlive, totalSpawned)
+
+    -- 调试输出：每个玩家当前怪物数量
+    if Layer3.spawnTick <= 5 or Layer3.spawnTick % 10 == 0 then
+        print(string.format("[Layer3] 调试 - tick=%d: 存活=%d 生成=%d 有效=%d 阶段=%d", Layer3.spawnTick, totalAlive, totalSpawned, effectiveTotal, Layer3.currentPhase))
+        for _, pid in ipairs(Layer3.SPAWN_OWNER_PIDS) do
+            local cnt = countMobsOfPlayer(pid)
+            print(string.format("[Layer3]   玩家%d 拥有 %d 个怪物 (上限=%d)", pid, cnt, Layer3.SPAWN_MAX_PER_PLAYER))
         end
     end
 
-    -- ===== 处理阶段转换（仅当有待处理的转换且第 2 阶段尚未开始）=====
+    -- 阶段转换检测：有效总数 >= 阈值 且仍在 P1 时立即标记进入 P2
+    -- 修复旧逻辑 ceil(total/80)>currentPhase 在 total=80 时 ceil=1 不触发的问题
+    if not Layer3.phase2Started and not Layer3._phaseTransitionPending then
+        if effectiveTotal >= Layer3.PHASE_MOBS_PER_STAGE then
+            Layer3._phaseTransitionPending = true
+            print(string.format("[Layer3] 检测到总数 %d >= 阈值 %d，准备进入第2阶段", effectiveTotal, Layer3.PHASE_MOBS_PER_STAGE))
+        end
+    end
+
+    -- 执行阶段转换（同一 tick 内紧接检测后执行，最多延迟 1 tick，保证上限后下一次回调即生效）
     if Layer3._phaseTransitionPending and not Layer3.phase2Started then
-        -- 从 1 阶段切换到 2 阶段
         print("[Layer3] === 进入第 2 阶段！===")
-        
-        -- 更新阶段变量
         Layer3.currentPhase = 2
         Layer3.phase2Started = true
-        
-        -- 给所有旧单位施加 By2X buff（攻击速度 +50%）
         local buffId = c2i("By2X")
-        print(string.format("[Layer3] 开始为 %d 个旧单位施加 Buff", #Layer3.spawnUnits))
+        print(string.format("[Layer3] 开始为 %d 个旧单位施加 Buff (攻速+50%%)", #Layer3.spawnUnits))
         for i, u in ipairs(Layer3.spawnUnits) do
-            if u and u._handle then
+            if u and u._handle and Group._isValidUnit(u._handle) then
                 pcall(function()
-                    -- 使用原生 API 附加 buff：AddSpellToUnit(unitHandle, spellId)
-                    cj.AddSpellToUnit(u._handle, buffId)
-                    local unitName = cj.GetUnitTypeId(u._handle) or "未知单位"
-                    print(string.format("[Layer3] Buff 已施加到 [%d/%d] %s", i, #Layer3.spawnUnits, unitName))
+                    local unitObj = u
+                    if not unitObj.addBuff then
+                        unitObj = Unit.fromHandle(u._handle)
+                    end
+                    if unitObj and unitObj.addBuff then
+                        if unitObj:isBuff(buffId) then return end
+                        local ok = unitObj:addBuff(buffId, 99999, function(bUnit)
+                            pcall(function() cj.SetUnitTimeScale(bUnit._handle, 1.5) end)
+                        end, function(bUnit)
+                            pcall(function() cj.SetUnitTimeScale(bUnit._handle, 1.0) end)
+                        end, false)
+                        if not ok then
+                            pcall(function() cj.SetUnitTimeScale(u._handle, 1.5) end)
+                        end
+                    else
+                        pcall(function() cj.SetUnitTimeScale(u._handle, 1.5) end)
+                    end
                 end)
-            else
-                print(string.format("[Layer3] 跳过无效单位：%s", tostring(u)))
             end
         end
-        
-        -- 清除转换标记，但保持 phase2Started=true 防止重复触发
         Layer3._phaseTransitionPending = false
         print("[Layer3] 阶段转换完成，旧单位已全部获得 Buff")
+        if SystemMessage and SystemMessage.send then
+            SystemMessage.send({{"STR", "阶段 2 已开启！所有旧怪物攻速 +50%!", SystemMessage.COLOR_WARN}}, 3.0)
+        end
+        -- 进入 P2 后跳过 P1 后续内容：停止 P1 刷怪（P1 已刷满 80，后续无需再按 P1 规则刷怪）
+        Layer3.stopMobSpawnSystem("P2已开启，跳过P1后续刷怪")
+        return
     end
 
+    -- P2 已开始时直接跳过 P1 刷怪逻辑（兜底，若计时器未停止）
+    if Layer3.phase2Started then
+        return
+    end
+
+    -- 判断是否达到刷怪上限（所有玩家满员）
     local n = #Layer3.SPAWN_OWNER_PIDS
     local startIdx = currentOwnerIndex()
     local targetPid = nil
@@ -663,8 +694,8 @@ local function onSpawnTick()
         rec.seq, Layer3.spawnTick, rec.unitType, rec.unitId, rec.pid, rec.x, rec.y))
     
     -- 打印阶段信息（调试用）
-    print(string.format("[Layer3] === 阶段信息 === 当前：%d 总单位数：%d 阈值:%d", 
-        Layer3.currentPhase, totalMobs, Layer3.PHASE_MOBS_PER_STAGE))
+    print(string.format("[Layer3] === 阶段信息 === 当前：%d 存活:%d 生成:%d 阈值:%d", 
+        Layer3.currentPhase, getMobCount(), Layer3.spawnSeq, Layer3.PHASE_MOBS_PER_STAGE))
 end
 
 -- 初始化（关卡 3 开始加载完成后调用）：计时器/计数器清零、记录列表初始化、
@@ -925,16 +956,18 @@ function Layer3.registerLayer3DeathHandler()
 end
 
 function Layer3.unregisterLayer3DeathHandler()
-    if Layer3.deathListenerAdded then
-        -- 取消事件监听（简单方案：在 shutdown 时忽略）
+    if Layer3.deathHandler then
+        pcall(function() Layer3.deathHandler:destroy() end)
+        Layer3.deathHandler = nil
+        print("[Layer3] 注销关卡死亡处理")
+    elseif Layer3.deathListenerAdded then
         print("[Layer3] 注销关卡死亡处理")
     end
 end
 
--- 将 unregister 添加到 shutdown
-Layer3.shutdown = function(self)
-    local wasStarted = self.started
-    self.started = false
+function Layer3.shutdown()
+    local wasStarted = Layer3.started
+    Layer3.started = false
     print("[Layer3] 关闭")
     -- 刷怪系统完整清理（停止并销毁计时器 / 清除单位实体 / 释放记录 / 重置状态）
     if Layer3.cleanupMobSpawnSystem then
@@ -942,7 +975,26 @@ Layer3.shutdown = function(self)
     end
     -- 注销死亡监听
     Layer3.unregisterLayer3DeathHandler()
-    -- ... 其他清理代码 ...
+    -- 销毁计时器
+    if Layer3.survivalTimer then Layer3.cancelSurvivalTimer() end
+    -- 销毁事件矩形
+    if Layer3.eventRect then Layer3.destroyEventRect("shutdown") end
+    -- 销毁通关区域
+    if Layer3.exitRect then Layer3.destroyExitRegion() end
+    -- 销毁墙体（兜底：若未通过 onSurvivalTimeout 移除，则此处统一移除）
+    if next(Layer3.wallMap) then Layer3.destroyWalls() end
+    -- 销毁额外事件
+    for _, e in ipairs(Layer3.events) do if e and e.destroy then pcall(function() e:destroy() end) end end
+    Layer3.events = {}
+    -- 销毁占位矩形
+    for id, rect in pairs(Layer3.rectHandles) do
+        if rect then pcall(function() Event:destroyRect(rect) end) pcall(function() rect:destroy() end) end
+        Layer3.eventHandles[id] = nil
+    end
+    Layer3.rectHandles = {}
+    Layer3.triggered = false
+    Layer3._teleporting = false
+    if not wasStarted and Layer3.finished then print("[Layer3] 关闭（通关后清理）") end
 end
 
 -- ============================================================
