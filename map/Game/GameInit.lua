@@ -35,7 +35,7 @@ GameInit.initWall = nil -- 初始力量墙句柄（可破坏物）
 GameInit.currentLayer = 0 -- 当前关卡 0=未开始 1=关卡 1 2=关卡 2
 GameInit.reviveEvent = nil -- 英雄死亡复活事件
 -- 默认初始关卡：1=关卡 1，2=关卡 2（可根据需要修改）
-GameInit.initialLayer = 2
+GameInit.initialLayer = 4
 
 --- 应用迷雾设置（仅通过 Terrain 封装，不直调 cj）
 function GameInit.apply()
