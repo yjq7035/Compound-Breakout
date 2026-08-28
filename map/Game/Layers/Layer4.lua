@@ -2,12 +2,13 @@
 -- Layer4 — 第四关卡模块
 --|
 -- 坐标：入口/复活/传送 -8518.2,747.9（由关卡 3 通关后传送至此）
---
+--|
 -- 职责：
 --   1. 存放第四关卡坐标（入口/复活、传送）
 --   2. §1b: 创建墙体
 --   3. §1c: 矩形区域定义（A/B 刷怪区，C 通关区）
 --   4. §2a: 玩法系统（玩法 1：魔法强化怪物 + 击杀检测）
+--   5. §2b: 玩法 2（竖墙 1 延迟创建 + 区域触发待实现）
 --|=============================================================
 
 Layer4 = {}
@@ -46,7 +47,7 @@ Layer4.walls = {
     { index = 1, x = -8543.2, y = 3544.7, id = "B000", dir = "H", face = 270, name = "横墙 1" },
     { index = 2, x = -12897.8, y = 3844.4, id = "B000", dir = "H", face = 270, name = "横墙 2" },
     { index = 3, x = -10070.3, y = 5306.5, id = "B000", dir = "H", face = 270, name = "横墙 3" },
-    { index = 4, x = -9596.7, y = 4296.7, id = "DL84", dir = "V", face = 0,   name = "竖墙 1" },
+    -- index=4 竖墙 1：属于玩法 2，默认不创建，由玩法 2 激活时动态创建
     { index = 5, x = -12457.2, y = 2074.7, id = "DL84", dir = "V", face = 0,   name = "竖墙 2" },
     { index = 6, x = -11647.0, y = 2867.7, id = "DL84", dir = "V", face = 0,   name = "竖墙 3" },
 }
@@ -74,6 +75,17 @@ Layer4.play1Unit     = nil     -- 运行时怪物句柄
 Layer4.play1Triggered = false -- 是否已触发（防止重复）
 
 --|=============================================================
+-- §2b: 玩法 2 配置（竖墙 1 延迟创建 + 区域触发待实现）
+--|=============================================================
+
+-- 玩法 2：竖墙 1 延迟创建
+--   - 墙体坐标：-9596.7,4296.7 | DL84 | face 0
+--   - 触发条件：所有用户玩家英雄进入矩形 A or B（待实现）
+Layer4.play2Wall1Pos = { x = -9596.7, y = 4296.7, wallId = "DL84", dir = "V", face = 0, name = "竖墙 1" }
+Layer4.play2Triggered = false -- 是否已触发（防止重复创建）
+Layer4.play2WallHandle = nil  -- 运行时墙体句柄
+
+--|=============================================================
 -- §2 生命周期
 --|=============================================================
 
@@ -90,7 +102,7 @@ function Layer4.start()
     else
         Player.sendAll("关卡 4 已启动")
     end
-    -- §1b: 创建所有墙体
+    -- §1b: 创建横墙（竖墙 1 属于玩法 2，不在此时创建）
     Layer4.createWalls()
     -- §2a: 初始化玩法系统（玩法 1：创建魔法怪物）
     if not Layer4.play1Unit then
@@ -105,7 +117,13 @@ function Layer4.shutdown()
     print("[Layer4] 关闭")
     -- §2a: 清理玩法系统（销毁怪物）
     Layer4.destroyPlay1Boss()
-    -- §2b: 清理所有墙体（如果存在）
+    -- §2b: 清理竖墙 1（如果存在）
+    if Layer4.play2WallHandle then
+        pcall(function() cj.RemoveDestructable(Layer4.play2WallHandle) end)
+        print("[Layer4] §2b: 清理竖墙 1")
+        Layer4.play2WallHandle = nil
+    end
+    -- §1b: 清理所有横墙（如果存在）
     Layer4.destroyWalls()
 end
 
@@ -154,7 +172,7 @@ end
 
 function Layer4.destroyWalls()
     if not Layer4.createDone then return end
-    print("[Layer4] §1b: 销毁所有墙体...")
+    print("[Layer4] §1b: 销毁所有横墙...")
     for _, h in ipairs(Layer4.handles) do
         if h then
             pcall(function() cj.RemoveDestructable(h) end)
@@ -163,6 +181,24 @@ function Layer4.destroyWalls()
     end
     Layer4.handles = {}
     Layer4.wallMap = {}
+end
+
+--|=============================================================
+-- §2b: 玩法 2 - 竖墙 1 延迟创建管理
+--|=============================================================
+
+function Layer4.createPlay2Wall1()
+    if Layer4.play2Triggered then return end
+    Layer4.play2Triggered = true
+    print("[Layer4] §2b: 创建竖墙 1...")
+    local pos = Layer4.play2Wall1Pos
+    local h = createOne(pos)
+    if h then
+        Layer4.play2WallHandle = h
+        print(string.format("  ✓ 竖墙 1 已创建：%.1f,%.1f", pos.x, pos.y))
+    else
+        print(string.format("  ✗ 竖墙 1 创建失败"))
+    end
 end
 
 --|=============================================================
@@ -220,7 +256,7 @@ if not Layer4.deathListener then
             print("[Layer4] §2a: 跳过（关卡已结束）")
             return
         end
-
+        
         -- Event.unit 返回裸 userdata handle，需用 Unit.fromHandle 包装成 Unit 对象
         local dyingHandle = ev.unit
         if not dyingHandle then
@@ -232,35 +268,35 @@ if not Layer4.deathListener then
             print("[Layer4] §2a: Unit.fromHandle 返回 nil")
             return
         end
-
+        
         -- 通过 OOP 方法获取四字符码类型，匹配玩法 1 怪物 n89f
         local unitTypeCode = dyingUnit:getTypeCode()
         if unitTypeCode ~= Layer4.play1Config.unitId then
             return
         end
-
+        
         -- 检查怪物是否还存在（防止尸体被检测）
         if not Layer4.play1Unit then
             print("[Layer4] §2a: play1Unit is nil，跳过")
             return
         end
-
+        
         print(string.format("[Layer4] ✓ 玩法 1 BOSS 死亡！type=%s handle=%s", unitTypeCode or "unknown", tostring(dyingHandle)))
-
+        
         -- 去重：防止同一怪物死亡事件被多次触发
         if Layer4.play1Triggered then
             print("[Layer4] §2a: 已触发过，跳过销毁")
             return
         end
         Layer4.play1Triggered = true
-
+        
         -- 销毁横墙 1（index=1）
         local h = Layer4.wallMap[1]
         if not h then
             print("[Layer4] §2a: ✗ 警告 - 横墙 1 handle 缺失！wallMap[1]=nil")
             return
         end
-
+        
         -- 从 wall 配置表取坐标（destructable handle 没有 .x/.y 字段）
         local wallCfg = Layer4.walls[1]
         print(string.format("[Layer4] §2a: ✓ 开始销毁横墙 1 at %.1f,%.1f", wallCfg.x, wallCfg.y))
@@ -274,7 +310,7 @@ if not Layer4.deathListener then
         end
         Layer4.wallMap[1] = nil
         print("[Layer4] §2a: ✓ 横墙 1 已销毁，玩家可通过")
-
+        
         -- 发送系统消息提示玩家
         if SystemMessage and SystemMessage.send then
             SystemMessage.send({{"STR", "玩法 1 通关！横墙 1 已摧毁，继续前进！", SystemMessage.COLOR_SUCCESS}}, 5.0)
@@ -282,6 +318,81 @@ if not Layer4.deathListener then
             Player.sendAll("玩法 1 通关！横墙 1 已摧毁")
         end
     end)
+end
+
+--|=============================================================
+-- §2b: 玩法 2 - 区域触发系统（待实现）
+--|=============================================================
+
+--玩家进入矩形 A/B 时激活竖墙 1（待用户设计完成后添加）
+local function onMobSpawnRectEnter(rectId, unit)
+    if not Layer4.play2Triggered then
+        print(string.format("[Layer4] §2b: 矩形%s触发！激活竖墙 1", rectId))
+        Layer4.createPlay2Wall1()
+        -- TODO: 添加玩法 2 的其他逻辑（待用户设计）
+    end
+end
+
+-- 初始化区域进入监听器（关卡启动时调用）
+local function initMobSpawnRectListeners()
+    for _, rectA in ipairs(Layer4.mobSpawnRectsA) do
+        if not Layer4.rectListeners then Layer4.rectListeners = {} end
+        local rectId = rectA.id or ""  
+        local r = Rect:new(rectA.cx - rectA.width/2, rectA.cy - rectA.height/2,
+                           rectA.cx + rectA.width/2, rectA.cy + rectA.height/2)
+        if not r then return end
+        
+        print(string.format("[Layer4] §2b: 创建矩形 A[%s] 触发器：%.1f,%.1f -> %.1f,%.1f", 
+            rectId, r.left, r.bottom, r.right, r.top))
+        local onEnter = function(ev)
+            if Layer4.finished then return end
+            local unit = ev.unit or cj.GetEnteringUnit()
+            if not unit then return end
+            -- 仅检测用户玩家英雄（pid 0-3）
+            local owner = Player.fromHandle(cj.GetOwningPlayer(unit))
+            if not owner or not owner:isUser() then return end
+            if not cj.IsUnitType(unit, UNIT_TYPE_HERO) then return end
+        
+            local pid = owner:getId()
+            if pid < 0 or pid > 3 then return end
+        
+            onMobSpawnRectEnter(rectId, unit)
+        end
+        Layer4.rectListeners["A:" .. rectId] = Event:newRect(r, onEnter)
+    end
+    
+    -- 对矩形 B 重复处理...
+    for _, rectB in ipairs(Layer4.mobSpawnRectsB) do
+        if not Layer4.rectListeners then Layer4.rectListeners = {} end
+        local rectId = rectB.id or ""
+        local r = Rect:new(rectB.cx - rectB.width/2, rectB.cy - rectB.height/2,
+                           rectB.cx + rectB.width/2, rectB.cy + rectB.height/2)
+        if not r then return end
+        
+        print(string.format("[Layer4] §2b: 创建矩形 B[%s] 触发器：%.1f,%.1f -> %.1f,%.1f", 
+            rectId, r.left, r.bottom, r.right, r.top))
+        local onEnter = function(ev)
+            if Layer4.finished then return end
+            local unit = ev.unit or cj.GetEnteringUnit()
+            if not unit then return end
+            -- 仅检测用户玩家英雄（pid 0-3）
+            local owner = Player.fromHandle(cj.GetOwningPlayer(unit))
+            if not owner or not owner:isUser() then return end
+            if not cj.IsUnitType(unit, UNIT_TYPE_HERO) then return end
+        
+            local pid = owner:getId()
+            if pid < 0 or pid > 3 then return end
+        
+            onMobSpawnRectEnter(rectId, unit)
+        end
+        Layer4.rectListeners["B:" .. rectId] = Event:newRect(r, onEnter)
+    end
+end
+
+-- 调用 initMobSpawnRectListeners（在 Layer4.start() 中）
+if not Layer4.rectListeners then
+    print("[Layer4] §2b: 初始化矩形 A/B 进入监听器...")
+    initMobSpawnRectListeners()
 end
 
 --|=============================================================
