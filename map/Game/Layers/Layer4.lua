@@ -114,9 +114,26 @@ end
 --|=============================================================
 
 local function createOne(w)
-    if not w or not w.x or not w.y or not w.id then return nil end
+    if not w or not w.x or not w.y or not w.id then
+        print(string.format("[Layer4] createOne: nil params w=%s", tostring(w)))
+        return nil
+    end
     local face = w.face or (w.dir == "H" and 270 or 0)
-    return cj.CreateDestructable(c2i(w.id), w.x, w.y, face, 1, 0)
+    -- 确保参数类型正确：c2i 返回整数，坐标是数字
+    local typeId = c2i(w.id) or 0
+    local x, y = tonumber(w.x), tonumber(w.y)
+    if not x or not y then
+        print(string.format("[Layer4] createOne: bad coords id=%s x=%.1f y=%.1f", w.id, w.x, w.y))
+        return nil
+    end
+    -- 打印调试信息（创建墙体时）
+    print(string.format("[Layer4] ✓ createOne: %s at %.1f,%.1f typeId=%d face=%d", 
+        w.name or "unknown", x, y, typeId, face))
+    local h = cj.CreateDestructable(typeId, x, y, face, 1, 0)
+    if not h then
+        print(string.format("[Layer4] ✗ createOne FAILED: %s (id=%d pos=%.1f,%.1f)", w.name or "unknown", typeId, x, y))
+    end
+    return h
 end
 
 function Layer4.createWalls()
@@ -199,34 +216,70 @@ if not Layer4.deathListener then
     print("[Layer4] §2a: 注册死亡事件监听器...")
     -- 使用 Event.new 注册全局死亡事件（参数 nil = 对所有玩家/单位生效）
     Layer4.deathListener = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
-        if Layer4.finished then return end
-        local dying = ev.unit or ev.target
-        if not dying then return end
-        
-        -- 检查是否是玩法 1 怪物 n89f（通过单位类型 ID 匹配）
-        local tid = cj.GetUnitTypeId(dying._handle)
-        if tid == c2i(Layer4.play1Config.unitId) and Layer4.play1Unit then
-            print("[Layer4] §2a: ✓ 玩法 1 怪物死亡，触发通关条件...")
-            
-            -- 去重：防止同一怪物死亡事件被多次触发（虽然引擎通常只触发一次）
-            if Layer4.play1Triggered then return end
-            Layer4.play1Triggered = true
-            
-            -- 销毁横墙 1（index=1）
-            local h = Layer4.wallMap[1]
-            if h then
-                pcall(function() cj.RemoveDestructable(h) end)
-                print("[Layer4] §2a: ✓ 横墙 1 已销毁，玩家可通过")
-                
-                -- 发送系统消息提示玩家
-                if SystemMessage and SystemMessage.send then
-                    SystemMessage.send({{"STR", "玩法 1 通关！横墙 1 已摧毁，继续前进！", SystemMessage.COLOR_SUCCESS}}, 5.0)
-                else
-                    Player.sendAll("玩法 1 通关！横墙 1 已摧毁")
-                end
-            else
-                print("[Layer4] §2a: 警告 - 横墙 1 handle 缺失")
+        if Layer4.finished then
+            print("[Layer4] §2a: 跳过（关卡已结束）")
+            return
+        end
+
+        -- Event.unit 返回裸 userdata handle，需用 Unit.fromHandle 包装成 Unit 对象
+        local dyingHandle = ev.unit
+        if not dyingHandle then
+            print("[Layer4] §2a: 没有死亡单位")
+            return
+        end
+        local dyingUnit = Unit.fromHandle(dyingHandle)
+        if not dyingUnit then
+            print("[Layer4] §2a: Unit.fromHandle 返回 nil")
+            return
+        end
+
+        -- 通过 OOP 方法获取四字符码类型，匹配玩法 1 怪物 n89f
+        local unitTypeCode = dyingUnit:getTypeCode()
+        if unitTypeCode ~= Layer4.play1Config.unitId then
+            return
+        end
+
+        -- 检查怪物是否还存在（防止尸体被检测）
+        if not Layer4.play1Unit then
+            print("[Layer4] §2a: play1Unit is nil，跳过")
+            return
+        end
+
+        print(string.format("[Layer4] ✓ 玩法 1 BOSS 死亡！type=%s handle=%s", unitTypeCode or "unknown", tostring(dyingHandle)))
+
+        -- 去重：防止同一怪物死亡事件被多次触发
+        if Layer4.play1Triggered then
+            print("[Layer4] §2a: 已触发过，跳过销毁")
+            return
+        end
+        Layer4.play1Triggered = true
+
+        -- 销毁横墙 1（index=1）
+        local h = Layer4.wallMap[1]
+        if not h then
+            print("[Layer4] §2a: ✗ 警告 - 横墙 1 handle 缺失！wallMap[1]=nil")
+            return
+        end
+
+        -- 从 wall 配置表取坐标（destructable handle 没有 .x/.y 字段）
+        local wallCfg = Layer4.walls[1]
+        print(string.format("[Layer4] §2a: ✓ 开始销毁横墙 1 at %.1f,%.1f", wallCfg.x, wallCfg.y))
+        pcall(function() cj.RemoveDestructable(h) end)
+        -- 从 handles 和 wallMap 中移除已销毁的墙体
+        for i, handle in ipairs(Layer4.handles) do
+            if handle == h then
+                table.remove(Layer4.handles, i)
+                break
             end
+        end
+        Layer4.wallMap[1] = nil
+        print("[Layer4] §2a: ✓ 横墙 1 已销毁，玩家可通过")
+
+        -- 发送系统消息提示玩家
+        if SystemMessage and SystemMessage.send then
+            SystemMessage.send({{"STR", "玩法 1 通关！横墙 1 已摧毁，继续前进！", SystemMessage.COLOR_SUCCESS}}, 5.0)
+        else
+            Player.sendAll("玩法 1 通关！横墙 1 已摧毁")
         end
     end)
 end
