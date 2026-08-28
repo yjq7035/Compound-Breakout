@@ -1,12 +1,13 @@
 --|=============================================================
 -- Layer4 — 第四关卡模块
 --|
--- 坐标：入口/复活/传送 -8518.2,747.9（由关卡3通关后传送至此）
+-- 坐标：入口/复活/传送 -8518.2,747.9（由关卡 3 通关后传送至此）
 --
 -- 职责：
 --   1. 存放第四关卡坐标（入口/复活、传送）
 --   2. §1b: 创建墙体
---   3. 后续扩展：刷怪、Boss 等
+--   3. §1c: 矩形区域定义（A/B 刷怪区，C 通关区）
+--   4. §2a: 玩法系统（玩法 1：魔法强化怪物 + 击杀检测）
 --|=============================================================
 
 Layer4 = {}
@@ -22,25 +23,25 @@ Layer4.teleportPos = { x = -8518.2, y = 747.9, name = "关卡 4 传送点" }
 Layer4.potionShopPos = { x = -8518.2, y = 747.9, name = "关卡 4 药剂商店（占位）" }
 
 --|=============================================================
--- §1b 墙体坐标与定义（关卡 4 设定）
--- §1b: 使用 walls[1..6] 数组统一管理，创建时直接遍历
+-- §1c: 矩形区域定义
+-- A、B：刷怪矩形区域配置（中心点 + 宽高），C：通关区域（边角坐标）
+Layer4.mobSpawnRectsA = {
+    { id = "A", cx = -13020.15, cy = 5888.8, width = 4959.9, height = 3636.2, name = "矩形 A 刷怪区域" },
+}
+Layer4.mobSpawnRectsB = {
+    { id = "B", cx = -9302.4, cy = 6552.7, width = 2223.0, height = 2262.4, name = "矩形 B 刷怪区域" },
+}
+Layer4.finishAreaC   = {
+    { id = "C", minx = -10234.0, miny = 4894.7, maxx = -9815.9, maxy = 5127.0, name = "矩形 C 通关区域" },
+}
+
+--|=============================================================
+-- §1b: 墙体定义与运行时（横墙 B000, 竖墙 DL84）
 --|=============================================================
 
--- 横墙 (H) - B000
-Layer4.wallH1 = { x = -8543.2, y = 3544.7, id = "B000", dir = "H", name = "横墙 1" }
-Layer4.wallH2 = { x = -12897.8, y = 3844.4, id = "B000", dir = "H", name = "横墙 2" }
-Layer4.wallH3 = { x = -10070.3, y = 5306.5, id = "B000", dir = "H", name = "横墙 3" }
-
--- 竖墙 (V) - DL84
-Layer4.wallV1 = { x = -9596.7, y = 4296.7, id = "DL84", dir = "V", name = "竖墙 1" }
-Layer4.wallV2 = { x = -12457.2, y = 2074.7, id = "DL84", dir = "V", name = "竖墙 2" }
-Layer4.wallV3 = { x = -11647.0, y = 2867.7, id = "DL84", dir = "V", name = "竖墙 3" }
-
--- 墙体定义与运行时（横墙 B000, 竖墙 DL84）
 Layer4.WALL_H = "B000"
 Layer4.WALL_V = "DL84"
 
--- §1b: 墙体坐标数组（创建时遍历使用）
 Layer4.walls = {
     { index = 1, x = -8543.2, y = 3544.7, id = "B000", dir = "H", face = 270, name = "横墙 1" },
     { index = 2, x = -12897.8, y = 3844.4, id = "B000", dir = "H", face = 270, name = "横墙 2" },
@@ -53,6 +54,24 @@ Layer4.walls = {
 Layer4.handles    = {}  -- destructable handle 列表
 Layer4.wallMap    = {}  -- index -> handle
 Layer4.createDone = false  -- §1b: 墙体是否已创建
+
+--|=============================================================
+-- §2a: 玩法系统配置（后续扩展）
+--|=============================================================
+
+-- 玩法 1：魔法强化怪物 + 击杀检测
+--   - 位置：-8524.9,3091.9 | n89f | 朝向 270
+--   - 属性：魔法+2000，最大魔法+5000
+--   - 绑定：死亡时通过->销毁横墙 1
+Layer4.play1Config = {
+    pos     = { x = -8524.9, y = 3091.9 },
+    unitId  = "n89f",
+    facing  = 270,
+    magic   = 2000,      -- 魔法强化 +2000
+    maxMana = 5000,      -- 最大魔法 +5000
+}
+Layer4.play1Unit     = nil     -- 运行时怪物句柄
+Layer4.play1Triggered = false -- 是否已触发（防止重复）
 
 --|=============================================================
 -- §2 生命周期
@@ -73,13 +92,20 @@ function Layer4.start()
     end
     -- §1b: 创建所有墙体
     Layer4.createWalls()
+    -- §2a: 初始化玩法系统（玩法 1：创建魔法怪物）
+    if not Layer4.play1Unit then
+        print("[Layer4] §2a: 启动玩法 1 - 创建魔法强化怪物...")
+        Layer4.createPlay1Boss()
+    end
 end
 
 function Layer4.shutdown()
     if not Layer4.started then return end
     Layer4.started = false
     print("[Layer4] 关闭")
-    -- §2a: 清理所有墙体（如果存在）
+    -- §2a: 清理玩法系统（销毁怪物）
+    Layer4.destroyPlay1Boss()
+    -- §2b: 清理所有墙体（如果存在）
     Layer4.destroyWalls()
 end
 
@@ -93,7 +119,6 @@ local function createOne(w)
     return cj.CreateDestructable(c2i(w.id), w.x, w.y, face, 1, 0)
 end
 
--- §1b: 创建所有横墙和竖墙（关卡 4 启动时）
 function Layer4.createWalls()
     if Layer4.createDone then return end
     print("[Layer4] §1b: 开始创建墙体...")
@@ -110,7 +135,6 @@ function Layer4.createWalls()
     Layer4.createDone = true
 end
 
--- §1b: 销毁所有墙体（关卡结束时）
 function Layer4.destroyWalls()
     if not Layer4.createDone then return end
     print("[Layer4] §1b: 销毁所有墙体...")
@@ -122,6 +146,89 @@ function Layer4.destroyWalls()
     end
     Layer4.handles = {}
     Layer4.wallMap = {}
+end
+
+--|=============================================================
+-- §2a: 玩法系统（玩法 1）
+--|=============================================================
+
+local function getEnemyPlayer()
+    return Player:new(4)
+end
+
+--- 创建魔法强化怪物 n89f（关卡启动时自动调用）
+function Layer4.createPlay1Boss()
+    if Layer4.play1Unit then print("[Layer4] §2a: 玩法 1 怪物已存在，跳过") return end
+    local p = getEnemyPlayer()
+    if not p then
+        print("[Layer4] §2a: Player.new 返回 nil")
+        return nil
+    end
+    
+    -- 创建单位
+    local u = Unit:new(p, Layer4.play1Config.unitId, Layer4.play1Config.pos.x, Layer4.play1Config.pos.y, Layer4.play1Config.facing)
+    if not u or not u._handle then
+        print("[Layer4] §2a: 创建 n89f 失败（坐标", Layer4.play1Config.pos.x, ",", Layer4.play1Config.pos.y, ")")
+        return
+    end
+    
+    -- 设置魔法强化：最大生命 + 状态值方式，直接修改 UNIT_STATE_MAX_LIFE、UNIT_STATE_DEFEND_WHITE 等
+    local maxLife = u:getState(UNIT_STATE_MAX_MANA)
+    if maxLife then
+        u:addState(UNIT_STATE_MAX_MANA, Layer4.play1Config.maxMana) -- +5000 最大魔法
+        u:addState(UNIT_STATE_MANA, Layer4.play1Config.magic)       -- +2000 当前魔法
+    end
+    
+    print(string.format("[Layer4] §2a: ✓ 玩法 1 怪物 n89f 已创建，坐标 %.1f,%.1f", Layer4.play1Config.pos.x, Layer4.play1Config.pos.y))
+    
+    -- 记录句柄
+    Layer4.play1Unit = u
+end
+
+--- 销毁魔法强化怪物（关卡关闭时调用）
+function Layer4.destroyPlay1Boss()
+    if not Layer4.play1Unit then print("[Layer4] §2a: 玩法 1 怪物不存在，跳过") return end
+    local u = Layer4.play1Unit
+    pcall(function() u:destroy() end)
+    print("[Layer4] §2a: ✓ 玩法 1 怪物已销毁")
+    Layer4.play1Unit = nil
+end
+
+-- 死亡事件监听：绑定到引擎全局 EVENT_PLAYER_UNIT_DEATH，检查单位是否为玩法 1 怪物
+if not Layer4.deathListener then
+    print("[Layer4] §2a: 注册死亡事件监听器...")
+    -- 使用 Event.new 注册全局死亡事件（参数 nil = 对所有玩家/单位生效）
+    Layer4.deathListener = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
+        if Layer4.finished then return end
+        local dying = ev.unit or ev.target
+        if not dying then return end
+        
+        -- 检查是否是玩法 1 怪物 n89f（通过单位类型 ID 匹配）
+        local tid = cj.GetUnitTypeId(dying._handle)
+        if tid == c2i(Layer4.play1Config.unitId) and Layer4.play1Unit then
+            print("[Layer4] §2a: ✓ 玩法 1 怪物死亡，触发通关条件...")
+            
+            -- 去重：防止同一怪物死亡事件被多次触发（虽然引擎通常只触发一次）
+            if Layer4.play1Triggered then return end
+            Layer4.play1Triggered = true
+            
+            -- 销毁横墙 1（index=1）
+            local h = Layer4.wallMap[1]
+            if h then
+                pcall(function() cj.RemoveDestructable(h) end)
+                print("[Layer4] §2a: ✓ 横墙 1 已销毁，玩家可通过")
+                
+                -- 发送系统消息提示玩家
+                if SystemMessage and SystemMessage.send then
+                    SystemMessage.send({{"STR", "玩法 1 通关！横墙 1 已摧毁，继续前进！", SystemMessage.COLOR_SUCCESS}}, 5.0)
+                else
+                    Player.sendAll("玩法 1 通关！横墙 1 已摧毁")
+                end
+            else
+                print("[Layer4] §2a: 警告 - 横墙 1 handle 缺失")
+            end
+        end
+    end)
 end
 
 --|=============================================================
