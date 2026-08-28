@@ -47,7 +47,7 @@ Layer4.walls = {
     { index = 1, x = -8543.2, y = 3544.7, id = "B000", dir = "H", face = 270, name = "横墙 1" },
     { index = 2, x = -12897.8, y = 3844.4, id = "B000", dir = "H", face = 270, name = "横墙 2" },
     { index = 3, x = -10070.3, y = 5306.5, id = "B000", dir = "H", face = 270, name = "横墙 3" },
-    -- index=4 竖墙 1：属于玩法 2，默认不创建，由玩法 2 激活时动态创建
+    { index = 4, x = -9596.7, y = 4296.7, wallId = "DL84", dir = "V", face = 0, name = "竖墙 1" },
     { index = 5, x = -12457.2, y = 2074.7, id = "DL84", dir = "V", face = 0,   name = "竖墙 2" },
     { index = 6, x = -11647.0, y = 2867.7, id = "DL84", dir = "V", face = 0,   name = "竖墙 3" },
 }
@@ -84,6 +84,7 @@ Layer4.play1Triggered = false -- 是否已触发（防止重复）
 Layer4.play2Wall1Pos = { x = -9596.7, y = 4296.7, wallId = "DL84", dir = "V", face = 0, name = "竖墙 1" }
 Layer4.play2Triggered = false -- 是否已触发（防止重复创建）
 Layer4.play2WallHandle = nil  -- 运行时墙体句柄
+Layer4.play2EnteredPids = {}  -- 记录已进入刷怪区域A/B的用户玩家pid集合 (pid -> true)
 
 --|=============================================================
 -- §2 生命周期
@@ -96,13 +97,17 @@ function Layer4.start()
     if Layer4.started then return end
     Layer4.started = true
     Layer4.finished = false
+    -- §2b: 重置玩法2状态（等待所有用户玩家英雄进入A/B才创建竖墙1）
+    Layer4.play2Triggered = false
+    Layer4.play2EnteredPids = {}
+    Layer4.play2WallHandle = nil
     print(string.format("[Layer4] 启动 入口/复活/传送 %.1f,%.1f", Layer4.entryPos.x, Layer4.entryPos.y))
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", "关卡 4 已启动", SystemMessage.COLOR_SUCCESS}}, 3.0)
     else
         Player.sendAll("关卡 4 已启动")
     end
-    -- §1b: 创建横墙（竖墙 1 属于玩法 2，不在此时创建）
+    -- §1b: 创建墙体（竖墙1 index=4 与竖墙3 index=6 默认不创建）
     Layer4.createWalls()
     -- §2a: 初始化玩法系统（玩法 1：创建魔法怪物）
     if not Layer4.play1Unit then
@@ -123,6 +128,9 @@ function Layer4.shutdown()
         print("[Layer4] §2b: 清理竖墙 1")
         Layer4.play2WallHandle = nil
     end
+    Layer4.wallMap[4] = nil
+    -- 重置玩法2进入记录
+    Layer4.play2EnteredPids = {}
     -- §1b: 清理所有横墙（如果存在）
     Layer4.destroyWalls()
 end
@@ -132,13 +140,18 @@ end
 --|=============================================================
 
 local function createOne(w)
-    if not w or not w.x or not w.y or not w.id then
+    if not w or not w.x or not w.y then
         print(string.format("[Layer4] createOne: nil params w=%s", tostring(w)))
+        return nil
+    end
+    local destructableId = w.id or w.wallId
+    if not destructableId then
+        print(string.format("[Layer4] createOne: missing id/wallId w=%s", tostring(w)))
         return nil
     end
     local face = w.face or (w.dir == "H" and 270 or 0)
     -- 确保参数类型正确：c2i 返回整数，坐标是数字
-    local typeId = c2i(w.id) or 0
+    local typeId = c2i(destructableId) or 0
     local x, y = tonumber(w.x), tonumber(w.y)
     if not x or not y then
         print(string.format("[Layer4] createOne: bad coords id=%s x=%.1f y=%.1f", w.id, w.x, w.y))
@@ -158,18 +171,22 @@ function Layer4.createWalls()
     if Layer4.createDone then return end
     print("[Layer4] §1b: 开始创建墙体...")
     for _, w in ipairs(Layer4.walls) do
-        local h = createOne(w)
-        if h then
-            table.insert(Layer4.handles, h)
-            Layer4.wallMap[w.index] = h
-            print(string.format("  ✓ %s: %.1f,%.1f (%s)", w.name, w.x, w.y, w.dir))
+        -- 关卡4启动时默认不创建竖墙1(index=4)和竖墙3(index=6)
+        if w.index == 4 or w.index == 6 then
+            print(string.format("  ⊘ %s(index=%d) 跳过创建(关卡4默认不创建)", w.name, w.index))
         else
-            print(string.format("  ✗ %s 创建失败", w.name))
+            local h = createOne(w)
+            if h then
+                table.insert(Layer4.handles, h)
+                Layer4.wallMap[w.index] = h
+                print(string.format("  ✓ %s: %.1f,%.1f (%s)", w.name, w.x, w.y, w.dir))
+            else
+                print(string.format("  ✗ %s 创建失败", w.name))
+            end
         end
     end
     Layer4.createDone = true
 end
-
 function Layer4.destroyWalls()
     if not Layer4.createDone then return end
     print("[Layer4] §1b: 销毁所有横墙...")
@@ -181,6 +198,7 @@ function Layer4.destroyWalls()
     end
     Layer4.handles = {}
     Layer4.wallMap = {}
+    Layer4.createDone = false
 end
 
 --|=============================================================
@@ -195,10 +213,37 @@ function Layer4.createPlay2Wall1()
     local h = createOne(pos)
     if h then
         Layer4.play2WallHandle = h
+        -- 同步写入 wallMap[4] 与 handles，便于统一销毁与查询
+        Layer4.wallMap[4] = h
+        table.insert(Layer4.handles, h)
         print(string.format("  ✓ 竖墙 1 已创建：%.1f,%.1f", pos.x, pos.y))
     else
         print(string.format("  ✗ 竖墙 1 创建失败"))
     end
+end
+
+-- 获取当前所有用户玩家pid列表（0-3 且 isUser && isPlaying）
+local function getActiveUserPids()
+    local list = {}
+    for pid = 0, 3 do
+        local p = Player:new(pid)
+        if p and p:isUser() and p:isPlaying() then
+            table.insert(list, pid)
+        end
+    end
+    return list
+end
+
+-- 检查是否所有用户玩家英雄都已进入过A/B区域
+local function isAllUserHeroesEntered()
+    local active = getActiveUserPids()
+    if #active == 0 then return false end
+    for _, pid in ipairs(active) do
+        if not Layer4.play2EnteredPids[pid] then
+            return false
+        end
+    end
+    return true
 end
 
 --|=============================================================
@@ -324,12 +369,29 @@ end
 -- §2b: 玩法 2 - 区域触发系统（待实现）
 --|=============================================================
 
---玩家进入矩形 A/B 时激活竖墙 1（待用户设计完成后添加）
+--所有用户玩家英雄进入刷怪区域A或B后激活玩法2，此时竖墙1创建
 local function onMobSpawnRectEnter(rectId, unit)
-    if not Layer4.play2Triggered then
-        print(string.format("[Layer4] §2b: 矩形%s触发！激活竖墙 1", rectId))
+    if Layer4.play2Triggered then return end
+    if not unit then return end
+    local owner = Player.fromHandle(cj.GetOwningPlayer(unit))
+    if not owner then return end
+    local pid = owner:getId()
+    if pid < 0 or pid > 3 then return end
+    -- 记录该pid已进入过A/B区域
+    if not Layer4.play2EnteredPids[pid] then
+        Layer4.play2EnteredPids[pid] = true
+        print(string.format("[Layer4] §2b: 玩家%d英雄进入矩形%s，已记录", pid, rectId))
+    end
+    -- 检查是否所有活跃用户玩家都已进入
+    if isAllUserHeroesEntered() then
+        print(string.format("[Layer4] §2b: 所有用户玩家英雄已进入A/B区域！矩形%s触发，激活竖墙 1", rectId))
         Layer4.createPlay2Wall1()
         -- TODO: 添加玩法 2 的其他逻辑（待用户设计）
+    else
+        local active = getActiveUserPids()
+        local entered = 0
+        for _, apid in ipairs(active) do if Layer4.play2EnteredPids[apid] then entered = entered + 1 end end
+        print(string.format("[Layer4] §2b: 等待所有玩家进入A/B [%d/%d] 当前矩形%s pid=%d", entered, #active, rectId, pid))
     end
 end
 
