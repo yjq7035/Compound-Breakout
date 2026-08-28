@@ -202,6 +202,33 @@ local function getEnemyPlayer()
     return Player:new(4)
 end
 
+-- 设置单位无敌和暂停（与 Layer1 刷怪点默认行为一致）
+---@param u Unit
+---@param invincible boolean
+---@param paused boolean
+local function setInvulnerableAndPause(u, invincible, paused)
+    if not u then return end
+    -- 设置无敌
+    if invincible then
+        if u.setInvulnerable then
+            pcall(function() u:setInvulnerable(true) end)
+        elseif u._handle and cj.SetUnitInvulnerable then
+            pcall(function() cj.SetUnitInvulnerable(u._handle, true) end)
+        end
+    end
+    -- 设置暂停
+    if paused then
+        if u.pause then
+            pcall(function() u:pause(true) end)
+        elseif u._handle and cj.PauseUnit then
+            pcall(function() cj.PauseUnit(u._handle, true) end)
+        end
+        if u.setPauseState then
+            pcall(function() u:setPauseState(true) end)
+        end
+    end
+end
+
 -- 增强属性：最大生命 +20%、当前生命设为 35% 新上限、护甲 +20%、攻击 +20%
 ---@param u Unit
 local function applyEnhancedStats(u)
@@ -215,35 +242,27 @@ local function applyEnhancedStats(u)
     -- 最大生命 +20%
     u:addState(UNIT_STATE_MAX_LIFE, math.floor(maxLife * 0.2))
 
-    -- 当前生命设为 35% 新上限（需 set 而非 add，否则会在原血量上叠加）
+    -- 当前生命设为新上限的 35%（使用 set 接口强制设置，避免 addState 负值问题）
     local newMaxLife = maxLife * 1.2
-    local targetLife = newMaxLife * 0.35
-    local delta = targetLife - currentLife
+    local targetLife = math.floor(newMaxLife * 0.35)
+    
+    -- 优先尝试直接设置当前生命值（不同框架可能使用不同的接口）
+    if u.set then
+        pcall(function() u:setState(UNIT_STATE_LIFE, targetLife) end)
+    elseif u._handle and cj.SetUnitState then
+        pcall(function() cj.SetUnitState(u._handle, UNIT_STATE_LIFE, targetLife) end)
+    else
+        local delta = targetLife - currentLife
+        if delta ~= 0 then
+            pcall(function() u:addState(UNIT_STATE_LIFE, delta) end)
+        end
+    end
+    
     local newArmor = math.floor(armor * 0.2)
     local newAttack = math.floor(attack * 0.2)
 
-    u:addState(UNIT_STATE_LIFE, delta)
     u:addState(UNIT_STATE_DEFEND_WHITE, newArmor)
     u:addState(UNIT_STATE_ATTACK_WHITE, newAttack)
-
-
-    if u.add then pcall(function() u:add("EnhancedUnit") end) end
-end
-
-local function setInvulnerableAndPause(u, invincible, paused)
-    if not u then return end
-    if invincible and u.setInvulnerable then
-        pcall(function() u:setInvulnerable(true) end)
-    end
-    -- 兼容两种暂停接口
-    if paused then
-        if u.setPauseState then
-            pcall(function() u:setPauseState(true) end)
-        end
-        if u.pause then
-            pcall(function() u:pause(true) end)
-        end
-    end
 end
 
 local function clearUnits(unitsKey, label)
@@ -318,19 +337,21 @@ local function spawnGeneric(posKey, unitsKey, gridFunc, facing, label, detail, e
     Layer2[unitsKey] = {}
 
     local invincibleKey = posKey:gsub("Pos$", "Invincible")
+    local pausedKey     = posKey:gsub("Pos$", "Paused")
     local needInvincible = Layer2[invincibleKey]
+    local needPaused     = Layer2[pausedKey]
 
     for _, pos in ipairs(positions) do
         local u = Unit:new(p, pos.id, pos.x, pos.y, facing)
         if u then
             table.insert(Layer2[unitsKey], u)
-            setInvulnerableAndPause(u, needInvincible, true)
+            setInvulnerableAndPause(u, needInvincible, needPaused)
             if enhanced then applyEnhancedStats(u) end
         end
     end
 
-    local count = #Layer2[unitsKey]
-    local suffix = enhanced and " (默认无敌且暂停，朝向 " .. facing .. "，增强属性)" or string.format(" (默认无敌且暂停，朝向 %d)", facing)
+    -- local count = #Layer2[unitsKey]
+    -- local suffix = enhanced and " (默认无敌且暂停，朝向 " .. facing .. "，增强属性)" or string.format(" (默认无敌且暂停，朝向 %d)", facing)
     -- detail 已包含单位构成说明
     return Layer2[unitsKey]
 end
@@ -1073,15 +1094,16 @@ function Layer2.createTriggerAreaBL()
         
         -- --print(string.format("[Layer2] 单位进入触发区域 unit=%s owner=%s", Event.unitDesc(unit), playerName))
         
-        -- 按 index 精确销毁绑定墙（竖墙 1 index=1 对应刷怪区域 1）并激活1号刷怪下达追击
+        print(string.format("[Layer2] 单位进入触发区域 unit=%s owner=%s", Event.unitDesc(unit), playerName))
+
+        -- 按 index 精确销毁绑定墙（竖墙 1 index=1 对应刷怪区域 1）并激活 1 号刷怪下达追击
         local tx, ty = cj.GetUnitX(unit), cj.GetUnitY(unit)
-        -- if Layer2.removeWallByIndex(1, "触发区域") then
-            --print("[Layer2] 竖墙 1 已销毁（触发区域 index=1）")
-        -- else
-            --print("[Layer2] 竖墙 1 已不存在（index=1）仍激活刷怪")
-        -- end
+        if Layer2.removeWallByIndex(1, "触发区域") then
+            print("[Layer2] 竖墙 1 已销毁（触发区域 index=1）")
+        else
+            print("[Layer2] 竖墙 1 已不存在（index=1）仍激活刷怪")
+        end
         Layer2.activateMobSpawn1(tx, ty)
-        
         -- 删除区域和事件，避免其他单位进入造成重复触发
         local rectToClean = triggerAreaBL
         triggerAreaBL = nil
@@ -1155,13 +1177,11 @@ function Layer2.createMobSpawnRects()
             -- local playerName = player:getName() or string.format("玩家%d", pid)
             
             -- --print(string.format("[Layer2] 单位进入刷怪区域 %s unit=%s owner=%s", curDef.name, Event.unitDesc(unit), playerName))
-            
             local tx, ty = cj.GetUnitX(unit), cj.GetUnitY(unit)
-            -- 按 index 精确删除绑定墙（walls[].index == 区域id）
-            -- --print(string.format("[Layer2] 触发前 wallMap[%s]=%s handles=%d", tostring(curDef.id), tostring(Layer2.wallMap[curDef.id]), #Layer2.handles))
-            -- local ok = Layer2.removeWallByIndex(curDef.id, curDef.name)
-            --print(string.format("[Layer2] 触发后 wallMap[%s]=%s ok=%s", tostring(curDef.id), tostring(Layer2.wallMap[curDef.id]), tostring(ok)))
-            -- 激活对应编号的刷怪点并让怪物攻击移动到触发者位置
+            -- 按 index 精确删除绑定墙
+            local ok = Layer2.removeWallByIndex(curDef.id, curDef.name)
+            print(string.format("[Layer2] 触发前 wallMap[%s]=%s", tostring(curDef.id), tostring(Layer2.wallMap[curDef.id])))
+            -- ok = true
             Layer2.activateMobSpawn(curDef.id, tx, ty)
 
             -- 一次性触发：销毁该区域与事件，防止重复触发
