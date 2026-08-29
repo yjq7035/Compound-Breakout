@@ -99,12 +99,12 @@ function CameraSetup:apply(doPan)
     end
 end
 
---- 强制应用镜头设置（限时）
+--- 强制应用镜头设置（限时，默认 0.5 秒快速）
 ---@param doPan boolean
----@param duration number
+---@param duration number (默认 0.5)
 function CameraSetup:applyForce(doPan, duration)
     if (self._handle ~= nil) then
-        cj.CameraSetupApplyForceDuration(self._handle, (doPan ~= nil) and doPan or true, duration or 1)
+        cj.CameraSetupApplyForceDuration(self._handle, (doPan ~= nil) and doPan or true, duration or 0.5)
     end
 end
 
@@ -116,12 +116,12 @@ function CameraSetup:applyWithZ(zOffset)
     end
 end
 
---- 强制应用镜头设置（带Z轴 + 限时）
+--- 强制应用镜头设置（带 Z 轴 + 限时，默认 0.5 秒快速）
 ---@param zOffset number
----@param duration number
+---@param duration number (默认 0.5)
 function CameraSetup:applyForceWithZ(zOffset, duration)
     if (self._handle ~= nil) then
-        cj.CameraSetupApplyForceDurationWithZ(self._handle, zOffset or 0, duration or 1)
+        cj.CameraSetupApplyForceDurationWithZ(self._handle, zOffset or 0, duration or 0.5)
     end
 end
 
@@ -136,12 +136,12 @@ function Camera.panTo(x, y)
     cj.PanCameraTo(x, y)
 end
 
---- 平移镜头（限时）
+--- 平移镜头（限时，默认 0.5 秒快速移动）
 ---@param x number
 ---@param y number
----@param duration number 过渡秒数
+---@param duration number 过渡秒数 (默认 0.5)
 function Camera.panToTimed(x, y, duration)
-    cj.PanCameraToTimed(x, y, duration or 1)
+    cj.PanCameraToTimed(x, y, duration or 0.5)
 end
 
 --- 平移镜头到坐标（带Z轴偏移）
@@ -152,13 +152,13 @@ function Camera.panToWithZ(x, y, zOffset)
     cj.PanCameraToWithZ(x, y, zOffset or 0)
 end
 
---- 平移镜头（限时 + 带Z轴）
+--- 平移镜头（限时 + 带 Z 轴，默认 0.5 秒快速移动）
 ---@param x number
 ---@param y number
 ---@param zOffset number
----@param duration number
+---@param duration number (默认 0.5)
 function Camera.panToTimedWithZ(x, y, zOffset, duration)
-    cj.PanCameraToTimedWithZ(x, y, zOffset or 0, duration or 1)
+    cj.PanCameraToTimedWithZ(x, y, zOffset or 0, duration or 0.5)
 end
 
 --- 设置镜头位置（立即）
@@ -221,19 +221,19 @@ function Camera.lockTarget(unit, xOffset, yOffset, inherit)
     cj.SetCameraTargetController(unit, xOffset or 0, yOffset or 0, (inherit ~= nil) and inherit or true)
 end
 
---- 旋转镜头
----@param x number 旋转中心X
----@param y number 旋转中心Y
+--- 旋转镜头（默认 0.5 秒快速旋转）
+---@param x number 旋转中心 X
+---@param y number 旋转中心 Y
 ---@param radians number 弧度
----@param duration number 过渡时间
+---@param duration number (默认 0.5)
 function Camera.rotate(x, y, radians, duration)
-    cj.SetCameraRotateMode(x, y, radians or 0, duration or 1)
+    cj.SetCameraRotateMode(x, y, radians or 0, duration or 0.5)
 end
 
---- 重置镜头到游戏默认
----@param duration number 过渡时间
+--- 重置镜头到游戏默认（快速重置，默认 0.5 秒）
+---@param duration number 过渡秒数 (默认 0.5)
 function Camera.reset(duration)
-    cj.ResetToGameCamera(duration or 0)
+    cj.ResetToGameCamera(duration or 0.5)
 end
 
 --- 播放电影镜头（所有玩家）

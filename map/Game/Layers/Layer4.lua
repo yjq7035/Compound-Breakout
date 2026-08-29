@@ -10,6 +10,12 @@
 --   5. §2b: 玩法2 所有用户玩家英雄进入A或B后创建竖墙1
 --|=============================================================
 
+-- ============================================================
+-- [常量] 魔法强化换算（与 GameDamage.lua 保持一致）
+--   每 1000 点 = +100% 魔法伤害倍率
+-- ============================================================
+local MAGICAMP_TO_PCT = 1000
+
 Layer4 = {}
 Layer4.__index = Layer4
 
@@ -178,7 +184,7 @@ end
 local function onMobSpawnRectEnter(rectId, unit)
     if Layer4.play2Triggered then return end
     if not unit then return end
-    local okOwner, owner = pcall(Player.fromHandle, Player, cj.GetOwningPlayer(unit))
+    local okOwner, owner = pcall(Player.fromHandle, cj.GetOwningPlayer(unit))
     if not okOwner or not owner then return end
     local pid = owner:getId()
     if pid < 0 or pid > 3 then return end
@@ -217,7 +223,7 @@ local function initMobSpawnRectListeners()
                 if Layer4.finished then return end
                 local u = ev.unit or cj.GetEnteringUnit()
                 if not u then return end
-                local okOwner, owner = pcall(Player.fromHandle, Player, cj.GetOwningPlayer(u))
+                local okOwner, owner = pcall(Player.fromHandle, cj.GetOwningPlayer(u))
                 if not okOwner or not owner or not owner.isUser or not owner:isUser() then return end
                 if not cj.IsUnitType(u, UNIT_TYPE_HERO) then return end
                 if owner:getId() < 0 or owner:getId() > 3 then return end
@@ -237,7 +243,7 @@ local function initMobSpawnRectListeners()
                 if Layer4.finished then return end
                 local u = ev.unit or cj.GetEnteringUnit()
                 if not u then return end
-                local okOwner, owner = pcall(Player.fromHandle, Player, cj.GetOwningPlayer(u))
+                local okOwner, owner = pcall(Player.fromHandle, cj.GetOwningPlayer(u))
                 if not okOwner or not owner or not owner.isUser or not owner:isUser() then return end
                 if not cj.IsUnitType(u, UNIT_TYPE_HERO) then return end
                 if owner:getId() < 0 or owner:getId() > 3 then return end
@@ -284,12 +290,12 @@ function Layer4.createPlay1Boss()
         print(string.format("[Layer4] §2a: 创建n89f失败 %.1f,%.1f", Layer4.play1Config.pos.x, Layer4.play1Config.pos.y))
         return
     end
-    local ok = pcall(function()
-        u:addState(UNIT_STATE_MAX_MANA, Layer4.play1Config.maxMana)
-        u:addState(UNIT_STATE_MANA, Layer4.play1Config.magic)
-    end)
-    if not ok then print("[Layer4] §2a: addState 失败") end
-    print(string.format("[Layer4] §2a: ✓ n89f已创建 %.1f,%.1f", Layer4.play1Config.pos.x, Layer4.play1Config.pos.y))
+    -- [魔法强化] 每 1000 点 = +100% 魔法伤害（仅魔法伤害生效）
+    -- 直接设置 Unit.state.magicAmp，GameDamage 会自动读取并应用增伤
+    local maValue = Layer4.play1Config.magic or 2000  -- 默认 2000 = +200%
+    u.state.magicAmp = maValue
+    print(string.format("[Layer4] §2a: ✓ n89f 已创建 %.1f,%.1f | 魔法强化 = %d (每 1000 点=+100%%)", 
+        Layer4.play1Config.pos.x, Layer4.play1Config.pos.y, maValue))
     Layer4.play1Unit = u
 end
 
