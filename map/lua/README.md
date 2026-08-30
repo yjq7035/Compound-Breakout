@@ -18,7 +18,7 @@ map/lua/
 │   └── LeakDetect.lua    →   游戏资源泄露检测（默认开启，UI TXT 播报）
 │
 └── Base/                 ← [基础库层] 引用 api 层构建，供 AI/用户使用者调用
-    ├── Time.lua          →   定时器系统
+    ├── Time.lua          →   定时器系统（含真计时器方法）
     ├── Player.lua        →   玩家系统
     ├── Unit.lua          →   单位系统
     ├── Hero.lua          →   英雄系统
@@ -26,6 +26,7 @@ map/lua/
     ├── Item.lua          →   物品系统
     ├── Group.lua         →   单位组系统
     ├── Event.lua         →   事件系统
+    ├── Destroyable.lua   →   可破坏物系统（cj.CreateDestructable 封装，生命/伤害/特效）
     ├── Effect.lua        →   特效系统
     ├── Lightning.lua     →   闪电效果
     ├── Sound.lua         →   音效系统
@@ -45,6 +46,13 @@ map/lua/
     ├── SystemMessage.lua →   系统消息提示（屏幕中央，带渐隐）
     └── Multiboard.lua    →   多面板 / 排行榜
 ```
+
+**可破坏物系统说明：**
+- `Destroyable.lua` 是可破坏物的基础 OOP 层，提供完整的元表对象和方法封装
+- 所有可破坏物的破坏/销毁操作都通过对象方法实现：`:takeDamage()`, `:destroy()`, `:heal()`, `:onDamage()`, `:onDestroy()`
+- 可破坏物状态管理：`:isValid()`, `:IsDestroyed()`, `:getHpPercent()`, `:getRemainingHp()`
+- 伤害类型支持：普通伤害、穿透伤害、致命伤害、治疗修复
+- 特效系统：受伤特效、破坏特效自动播放
 
 ---
 

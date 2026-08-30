@@ -180,18 +180,15 @@ Layer1.exitCenter = { x = -9629.7, y = -15068.3, w = 350, h = 350 }
 -- ------------------------------------------------------------
 local function isUnitAlive(u)
     if not u then return false end
-    local h
-    if type(u) == "table" then
-        h = u._handle
-        if not h then return false end
-    else
-        h = u -- userdata handle 直接传入
+    -- 使用 Unit 对象的 isValid 方法，避免直接使用底层 API
+    if type(u) == "table" and u.isValid then
+        return u:isValid()
     end
     -- handle 已被引擎移除（GetUnitTypeId==0）视为死亡
-    if cj.GetUnitTypeId(h) == 0 then return false end
-    if cj.IsUnitType(h, UNIT_TYPE_DEAD) then return false end
+    if cj.GetUnitTypeId(u) == 0 then return false end
+    if cj.IsUnitType(u, UNIT_TYPE_DEAD) then return false end
     -- GetUnitState 对死亡单位仍可调用，life<=0.405 视为死亡
-    local ok, life = pcall(cj.GetUnitState, h, UNIT_STATE_LIFE)
+    local ok, life = pcall(cj.GetUnitState, u, UNIT_STATE_LIFE)
     if ok and life <= 0.405 then return false end
     return true
 end
@@ -265,6 +262,7 @@ function Layer1.removeWallNear(tx, ty, reason)
     local h = Layer1.wallMap[bestIdx]
     local w = Layer1.walls[bestIdx]
     if h then
+        -- 使用 Unit 的底层销毁方法（destructable 不能用 Unit 对象）
         cj.RemoveDestructable(h)
         Layer1.wallMap[bestIdx] = nil
         -- 同步从 handles 移除

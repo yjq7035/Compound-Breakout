@@ -198,8 +198,25 @@ local function distance(ax, ay, bx, by)
     return ((ax - bx) ^ 2 + (ay - by) ^ 2) ^ 0.5
 end
 
-local function getEnemyPlayer()
-    return Player:new(4)
+local function isUnitAlive(u)
+    if not u then return false end
+    -- 使用 Unit 对象的 isValid 方法，避免直接使用底层 API
+    if type(u) == "table" and u.isValid then
+        return u:isValid()
+    end
+    -- handle 已被引擎移除（通过 Unit 封装检查）视为死亡
+    if u and u._handle then
+        if type(u.isValid) == "function" then
+            local ok, valid = u:isValid()
+            return ok and valid or false
+        end
+        -- 兜底：尝试通过 Unit 对象获取状态
+        if u.getState then
+            local life = u:getState(UNIT_STATE_LIFE)
+            if life <= 0.405 then return false end
+        end
+    end
+    return true
 end
 
 -- 设置单位无敌和暂停（与 Layer1 刷怪点默认行为一致）
@@ -211,20 +228,20 @@ local function setInvulnerableAndPause(u, invincible, paused)
     -- 设置无敌
     if invincible then
         if u.setInvulnerable then
-            pcall(function() u:setInvulnerable(true) end)
+            u:setInvulnerable(true)
         elseif u._handle and cj.SetUnitInvulnerable then
-            pcall(function() cj.SetUnitInvulnerable(u._handle, true) end)
+            cj.SetUnitInvulnerable(u._handle, true)
         end
     end
     -- 设置暂停
     if paused then
         if u.pause then
-            pcall(function() u:pause(true) end)
+            u:pause(true)
         elseif u._handle and cj.PauseUnit then
-            pcall(function() cj.PauseUnit(u._handle, true) end)
+            cj.PauseUnit(u._handle, true)
         end
         if u.setPauseState then
-            pcall(function() u:setPauseState(true) end)
+            u:setPauseState(true)
         end
     end
 end
@@ -246,15 +263,15 @@ local function applyEnhancedStats(u)
     local newMaxLife = maxLife * 1.2
     local targetLife = math.floor(newMaxLife * 0.35)
     
-    -- 优先尝试直接设置当前生命值（不同框架可能使用不同的接口）
+    -- 优先尝试直接设置当前生命值
     if u.set then
-        pcall(function() u:setState(UNIT_STATE_LIFE, targetLife) end)
+        u:setState(UNIT_STATE_LIFE, targetLife)
     elseif u._handle and cj.SetUnitState then
-        pcall(function() cj.SetUnitState(u._handle, UNIT_STATE_LIFE, targetLife) end)
+        cj.SetUnitState(u._handle, UNIT_STATE_LIFE, targetLife)
     else
         local delta = targetLife - currentLife
         if delta ~= 0 then
-            pcall(function() u:addState(UNIT_STATE_LIFE, delta) end)
+            u:addState(UNIT_STATE_LIFE, delta)
         end
     end
     
@@ -286,37 +303,41 @@ local function activateUnits(unitsKey, label, tx, ty)
             goto continue_loop
         end
         
-        -- 移除无敌：优先 Unit 接口，失败回退到原生（规避flag==false的旧封装bug已修复，此处双保险）
-        local okInv = pcall(function() u:setInvulnerable(false) end)
-        if not okInv and u._handle then pcall(function() cj.SetUnitInvulnerable(u._handle, false) end) end
-        -- 解除暂停：PauseUnit(false) 为唯一正确路径，setPauseState 仅作兼容
-        local okPause = false
-        if u.pause then
-            okPause = pcall(function() u:pause(false) end)
-        end
-        if not okPause then
-            if u._handle then pcall(function() cj.PauseUnit(u._handle, false) end) end
-            if u.setPauseState then pcall(function() u:setPauseState(false) end) end
-        end
-        -- 兜底：EXPauseUnit（框架 stun 使用）也需解开
-        if u._handle and cj.IsUnitPaused and cj.IsUnitPaused(u._handle) then
-            pcall(function() cdz.EXPauseUnit(u._handle, false) end)
+        -- 移除无敌：直接调用 Unit 封装接口
+        if u.setInvulnerable then
+            u:setInvulnerable(false)
+        elseif u._handle then
+            cj.SetUnitInvulnerable(u._handle, false)
         end
         
-        -- 若提供目标坐标，激活后下达攻击移动命令到触发单位位置
-        if tx and ty and u._handle then
-            -- 扩大索敌避免发呆
-            pcall(cj.SetUnitAcquireRange, u._handle, 2500)
-            if u.setAcquireRange then pcall(function() u:setAcquireRange(2500) end) end
-            -- 优先使用原生攻击移动，其次 Unit 封装
-            local ordered = false
-            if u.attack then
-                ordered = pcall(function() u:attack(tx, ty) end) and true or ordered
-            end
-            if not ordered and u.orderPoint then
-                pcall(function() u:orderPoint("attack", tx, ty) end)
-            end
-            pcall(cj.IssuePointOrder, u._handle, "attack", tx, ty)
+        -- 解除暂停
+        if u.pause then
+            u:pause(false)
+        elseif u._handle then
+            cj.PauseUnit(u._handle, false)
+        end
+        if u.setPauseState and u.setPauseState then
+            u:setPauseState(false)
+        end
+        
+        -- 兜底：EXPauseUnit（框架 stun 使用）
+        if u._handle and cj.IsUnitPaused and cj.IsUnitPaused(u._handle) then
+            cdz.EXPauseUnit(u._handle, false)
+        end
+        
+        -- 扩大索敌
+        cj.SetUnitAcquireRange(u._handle, 2500)
+        if u.setAcquireRange then
+            u:setAcquireRange(2500)
+        end
+        
+        -- 攻击移动
+        if u.attack then
+            u:attack(tx, ty)
+        elseif u.orderPoint then
+            u:orderPoint("attack", tx, ty)
+        elseif u._handle then
+            cj.IssuePointOrder(u._handle, "attack", tx, ty)
         end
         
         ::continue_loop::
@@ -331,7 +352,7 @@ local function spawnGeneric(posKey, unitsKey, gridFunc, facing, label, detail, e
     -- 允许外部传入覆盖坐标（保持原接口 cx,cy 可选）
     -- 调用方已处理 cx/cy 回落，此处仅兜底
     local positions = gridFunc(cx, cy)
-    local p = getEnemyPlayer()
+    local p = Player:new(0)
 
     clearUnits(unitsKey, label)
     Layer2[unitsKey] = {}
@@ -360,12 +381,13 @@ end
 -- §6 墙体管理
 -- ============================================================
 
-local function createOne(w)
-    if not w or not w.x or not w.y or not w.id then return nil end
-    local face = w.face or (w.dir == "H" and 270 or 0)
-    local h = cj.CreateDestructable(c2i(w.id), w.x, w.y, face, 1, 0)
-    return h
-end
+    local function createOne(w)
+        if not w or not w.x or not w.y or not w.id then return nil end
+        local face = w.face or (w.dir == "H" and 270 or 0)
+        -- 使用底层 API 创建可破坏物
+        local h = cj.CreateDestructable(c2i(w.id), w.x, w.y, face, 1, 0)
+        return h
+    end
 
 function Layer2.createWalls()
     if #Layer2.handles > 0 then
@@ -409,7 +431,13 @@ function Layer2.removeWallByIndex(index, reason)
     end
     local wName = (w and w.name) or ("index=" .. tostring(index))
     if h then
-        cj.RemoveDestructable(h)
+        -- 使用 Unit 封装移除（如果封装层提供）
+        if h.destroy then
+            pcall(function() h:destroy() end)
+        else
+            -- 兜底：使用底层 API 移除
+            pcall(function() cj.RemoveDestructable(h) end)
+        end
         Layer2.wallMap[index] = nil
         for k, vh in ipairs(Layer2.handles) do
             if vh == h then table.remove(Layer2.handles, k) break end
@@ -423,11 +451,18 @@ function Layer2.removeWallByIndex(index, reason)
             if rect then
                 pcall(function() cj.EnumDestructablesInRect(rect, nil, function()
                     local d = cj.GetEnumDestructable()
-                    if d and cj.GetDestructableTypeId(d) == c2i(w.id) then
-                        local dx, dy = cj.GetDestructableX(d), cj.GetDestructableY(d)
-                        if ((dx - w.x)^2 + (dy - w.y)^2)^0.5 < 64 then
-                            cj.RemoveDestructable(d)
-                            found = found + 1
+                    if d then
+                        local tid = cj.GetDestructableTypeId(d)
+                        if tid == c2i(w.id) then
+                            local dx, dy = cj.GetDestructableX(d), cj.GetDestructableY(d)
+                            if ((dx - w.x)^2 + (dy - w.y)^2)^0.5 < 64 then
+                                if d.destroy then
+                                    pcall(function() d:destroy() end)
+                                else
+                                    pcall(function() cj.RemoveDestructable(d) end)
+                                end
+                                found = found + 1
+                            end
                         end
                     end
                 end) end)
@@ -437,8 +472,8 @@ function Layer2.removeWallByIndex(index, reason)
                 -- 同步清理 handles 中可能残留但 wallMap 已空的情况
                 for k = #Layer2.handles, 1, -1 do
                     local vh = Layer2.handles[k]
-                    if vh and cj.GetDestructableTypeId and pcall(function() return cj.GetDestructableTypeId(vh) end) then
-                        -- 已被删除的 handle 会 GetTypeId==0，后续 prune
+                    if vh then
+                        -- 检查 handle 是否有效
                     end
                 end
                 if SystemMessage and SystemMessage.send then
@@ -927,17 +962,33 @@ function Layer2.onAllPlayersEntered()
         Player.sendAll("关卡 2 通关！")
     end
 
-    -- 传送至关卡 3 入口：用 Unit 坐标移动（修复 SetPlayerStartLocationX/Y 不存在报错，与关卡1保持一致）
+    -- 传送至关卡 3 入口：用 Unit 坐标移动（修复 SetPlayerStartLocationX/Y 不存在报错，与关卡 1 保持一致）
     local entry = Layer3 and Layer3.entryPos or { x = -11915.5, y = -1952.6 }
     local ex, ey = entry.x, entry.y
     for pid = 0, 3 do
         local p = Player:new(pid)
         if p:isPlaying() and p:isUser() then
-            local g = cj.CreateGroup()
-            cj.GroupEnumUnitsOfPlayer(g, p._handle, nil)
-            local u = cj.FirstOfGroup(g)
+            -- 使用 Group 封装创建单位组（如果封装层提供）
+            local g = nil
+            if Group then
+                g = Group:new()
+            else
+                g = cj.CreateGroup()
+            end
+            -- 枚举玩家单位
+            if Group and Group.EnumUnitsOfPlayer then
+                Group.EnumUnitsOfPlayer(g, p._handle, nil)
+            else
+                cj.GroupEnumUnitsOfPlayer(g, p._handle, nil)
+            end
+            local u = nil
+            if Group and Group.FirstUnit then
+                u = Group.FirstUnit(g)
+            else
+                u = cj.FirstOfGroup(g)
+            end
             while u ~= nil do
-                if cj.IsUnitType(u, UNIT_TYPE_HERO) then
+                if u:IsUnitType(UNIT_TYPE_HERO) then
                     -- 优先用 Unit 封装的坐标移动，确保与项目 OOP 层一致
                     local moved = false
                     if Unit and Unit.fromHandle then
@@ -948,23 +999,45 @@ function Layer2.onAllPlayersEntered()
                         end
                     end
                     if not moved then
+                        -- 使用 Unit 封装设置坐标（如果提供）
+                        if u.setPosition then
+                            pcall(function() u:setPosition(ex, ey) end)
+                        end
+                        -- 兜底：使用底层 API
                         pcall(cj.SetUnitPosition, u, ex, ey)
                         pcall(cj.SetUnitX, u, ex)
                         pcall(cj.SetUnitY, u, ey)
                     end
-                    pcall(cj.SetUnitPathing, u, true)
-                    if Unit and Unit.fromHandle then
-                        local ok3, uo = pcall(Unit.fromHandle, u)
-                        if ok3 and uo and uo.setPathing then pcall(function() uo:setPathing(true) end) end
+                    -- 设置寻路
+                    if u.setPathing then
+                        pcall(function() u:setPathing(true) end)
                     end
-                    if cj.GetLocalPlayer() == p._handle and Camera and Camera.panTo then
-                        pcall(function() Camera.panTo(ex, ey) end)
+                    pcall(cj.SetUnitPathing, u, true)
+                    -- 镜头跟随：异步操作，需包裹异步判断
+                    if cj.GetLocalPlayer() == p._handle then
+                        if Camera and Camera.panTo then
+                            pcall(function() Camera.panTo(ex, ey) end)
+                        end
                     end
                 end
-                cj.GroupRemoveUnit(g, u)
-                u = cj.FirstOfGroup(g)
+                -- 移除单位
+                if Group and Group.RemoveUnit then
+                    Group.RemoveUnit(g, u)
+                else
+                    cj.GroupRemoveUnit(g, u)
+                end
+                -- 获取下一个单位
+                if Group and Group.FirstUnit then
+                    u = Group.FirstUnit(g)
+                else
+                    u = cj.FirstOfGroup(g)
+                end
             end
-            cj.DestroyGroup(g)
+            if Group and Group.Destroy then
+                Group.Destroy(g)
+            else
+                cj.DestroyGroup(g)
+            end
         end
     end
 
@@ -987,11 +1060,23 @@ local function registerBoss11DeathEvent()
         if Layer2.boss11Killed then return end
         local dying = ev.unit
         if not dying then return end
-        local tid = cj.GetUnitTypeId(dying)
+        -- 使用 Unit 封装获取类型 ID（如果提供）
+        local tid = nil
+        if dying and dying.getTypeId then
+            tid = dying:getTypeId()
+        else
+            tid = cj.GetUnitTypeId(dying)
+        end
         local tidStr = i2c(tid)
         if tidStr ~= "nn13" then return end
-        -- 距离校验：确保是11区Boss（-8720.5,-13157.2附近500码）或通过单位句柄匹配
-        local dx, dy = cj.GetUnitX(dying), cj.GetUnitY(dying)
+        -- 距离校验：确保是 11 区 Boss（-8720.5,-13157.2 附近 500 码）或通过单位句柄匹配
+        local dx, dy = nil, nil
+        if dying and dying.getX then
+            dx, dy = dying:getX(), dying:getY()
+        else
+            dx = cj.GetUnitX(dying)
+            dy = cj.GetUnitY(dying)
+        end
         local isNear = distance(dx, dy, Layer2.mobSpawn11Pos.x, Layer2.mobSpawn11Pos.y) < 600
         local isHandleMatch = false
         for _, u in ipairs(Layer2.mobSpawn11Units or {}) do
@@ -1082,8 +1167,11 @@ function Layer2.createTriggerAreaBL()
     
     -- 设置单位进入事件（回调接收 Event 对象，通过 self.unit 获取进入的单位）
     triggerEventBL = Event:newRect(triggerAreaBL, function(ev)
-        local unit = ev.unit or ev._unit or cj.GetEnteringUnit()
-        if not unit then return end
+        local unit = ev.unit or ev._unit
+        if unit == nil then
+            unit = cj.GetEnteringUnit()
+        end
+        if unit == nil then return end
         
         -- 获取单位所属玩家
         local player = Player.fromHandle(cj.GetOwningPlayer(unit))
@@ -1092,12 +1180,16 @@ function Layer2.createTriggerAreaBL()
         local pid = player:getId()
         local playerName = player:getName() or string.format("玩家%d", pid)
         
-        -- --print(string.format("[Layer2] 单位进入触发区域 unit=%s owner=%s", Event.unitDesc(unit), playerName))
-        
         print(string.format("[Layer2] 单位进入触发区域 unit=%s owner=%s", Event.unitDesc(unit), playerName))
-
+        
         -- 按 index 精确销毁绑定墙（竖墙 1 index=1 对应刷怪区域 1）并激活 1 号刷怪下达追击
-        local tx, ty = cj.GetUnitX(unit), cj.GetUnitY(unit)
+        local tx, ty = nil, nil
+        if unit and unit.getX then
+            tx, ty = unit:getX(), unit:getY()
+        else
+            tx = cj.GetUnitX(unit)
+            ty = cj.GetUnitY(unit)
+        end
         if Layer2.removeWallByIndex(1, "触发区域") then
             print("[Layer2] 竖墙 1 已销毁（触发区域 index=1）")
         else
@@ -1109,10 +1201,8 @@ function Layer2.createTriggerAreaBL()
         triggerAreaBL = nil
         triggerEventBL = nil
         if rectToClean then
-            -- --print("[Layer2] 触发区域已销毁")
             Event:destroyRect(rectToClean)
             rectToClean:destroy()
-            -- --print("[Layer2] 触发器事件已销毁")
         end
     end)
     
@@ -1166,22 +1256,26 @@ function Layer2.createMobSpawnRects()
         
         -- 设置单位进入事件（使用 event 创建区域事件）
         local event = Event:newRect(rect, function(ev)
-            local unit = ev.unit or ev._unit or cj.GetEnteringUnit()
-            if not unit then return end
+            local unit = ev.unit or ev._unit
+            if unit == nil then
+                unit = cj.GetEnteringUnit()
+            end
+            if unit == nil then return end
             
             -- 获取单位所属玩家
             local player = Player.fromHandle(cj.GetOwningPlayer(unit))
             if not player or not player:isUser() then return end
             
-            -- local pid = player:getId()
-            -- local playerName = player:getName() or string.format("玩家%d", pid)
-            
-            -- --print(string.format("[Layer2] 单位进入刷怪区域 %s unit=%s owner=%s", curDef.name, Event.unitDesc(unit), playerName))
-            local tx, ty = cj.GetUnitX(unit), cj.GetUnitY(unit)
+            local tx, ty = nil, nil
+            if unit and unit.getX then
+                tx, ty = unit:getX(), unit:getY()
+            else
+                tx = cj.GetUnitX(unit)
+                ty = cj.GetUnitY(unit)
+            end
             -- 按 index 精确删除绑定墙
             local ok = Layer2.removeWallByIndex(curDef.id, curDef.name)
             print(string.format("[Layer2] 触发前 wallMap[%s]=%s", tostring(curDef.id), tostring(Layer2.wallMap[curDef.id])))
-            -- ok = true
             Layer2.activateMobSpawn(curDef.id, tx, ty)
 
             -- 一次性触发：销毁该区域与事件，防止重复触发

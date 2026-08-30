@@ -1,18 +1,17 @@
 --|=============================================================
 -- Layer4 — 第四关卡模块（重写稳定版 2026-08-29）
 --|
--- 坐标：入口/复活/传送 -8518.2,747.9（由关卡3通关后传送至此）
+-- 坐标：入口/复活/传送 -8518.2,747.9（由关卡 3 通关后传送至此）
 -- 职责：
 --   1. 存放第四关卡坐标（入口/复活、传送）
 --   2. §1b: 创建墙体（横墙 B000 / 竖墙 DL84，index=4/6 默认不创建）
 --   3. §1c: 矩形区域定义（A/B 刷怪区，C 通关区）
---   4. §2a: 玩法1 魔法强化怪物 n89f + 击杀销毁横墙1
---   5. §2b: 玩法2 所有用户玩家英雄进入A或B后创建竖墙1
+--   4. §2a: 玩法 1 魔法强化怪物 n89f + 击杀销毁横墙 1
+--   5. §2b: 玩法 2 所有用户玩家英雄进入 A 或 B 后创建竖墙 1
 --|=============================================================
 
 -- ============================================================
 -- [常量] 魔法强化换算（与 GameDamage.lua 保持一致）
---   每 1000 点 = +100% 魔法伤害倍率
 -- ============================================================
 -- local MAGICAMP_TO_PCT = 1000
 
@@ -22,22 +21,22 @@ Layer4.__index = Layer4
 --|=============================================================
 -- §1 坐标
 --|=============================================================
-Layer4.entryPos     = { x = -8518.2, y = 747.9, name = "关卡4 入口/复活/传送" }
-Layer4.revivePos    = { x = -8518.2, y = 747.9, name = "关卡4 复活点" }
-Layer4.teleportPos  = { x = -8518.2, y = 747.9, name = "关卡4 传送点" }
-Layer4.potionShopPos= { x = -8518.2, y = 747.9, name = "关卡4 药剂商店（占位）" }
+Layer4.entryPos     = { x = -8518.2, y = 747.9, name = "关卡 4 入口/复活/传送" }
+Layer4.revivePos    = { x = -8518.2, y = 747.9, name = "关卡 4 复活点" }
+Layer4.teleportPos  = { x = -8518.2, y = 747.9, name = "关卡 4 传送点" }
+Layer4.potionShopPos= { x = -8518.2, y = 747.9, name = "关卡 4 药剂商店（占位）" }
 
 --|=============================================================
 -- §1c: 矩形区域定义
 --|=============================================================
 Layer4.mobSpawnRectsA = {
-    { id = "A", cx = -13020.15, cy = 5888.8, width = 4959.9, height = 3636.2, name = "矩形A 刷怪区域" },
+    { id = "A", cx = -13020.15, cy = 5888.8, width = 4959.9, height = 3636.2, name = "矩形 A 刷怪区域" },
 }
 Layer4.mobSpawnRectsB = {
-    { id = "B", cx = -9302.4, cy = 6552.7, width = 2223.0, height = 2262.4, name = "矩形B 刷怪区域" },
+    { id = "B", cx = -9302.4, cy = 6552.7, width = 2223.0, height = 2262.4, name = "矩形 B 刷怪区域" },
 }
 Layer4.finishAreaC = {
-    { id = "C", minx = -10234.0, miny = 4894.7, maxx = -9815.9, maxy = 5127.0, name = "矩形C 通关区域" },
+    { id = "C", minx = -10234.0, miny = 4894.7, maxx = -9815.9, maxy = 5127.0, name = "矩形 C 通关区域" },
 }
 
 --|=============================================================
@@ -46,14 +45,14 @@ Layer4.finishAreaC = {
 Layer4.WALL_H = "B000"
 Layer4.WALL_V = "DL84"
 
--- index 4=竖墙1, index 6=竖墙3 启动时默认不创建（玩法2触发后才创建竖墙1）
+-- index 4=竖墙 1, index 6=竖墙 3 启动时默认不创建（玩法 2 触发后才创建竖墙 1）
 Layer4.walls = {
-    { index = 1, x = -8543.2,  y = 3544.7, id = "B000", dir = "H", face = 270, name = "横墙1" },
-    { index = 2, x = -12897.8, y = 3844.4, id = "B000", dir = "H", face = 270, name = "横墙2" },
-    { index = 3, x = -10070.3, y = 5306.5, id = "B000", dir = "H", face = 270, name = "横墙3" },
-    { index = 4, x = -9596.7,  y = 4296.7, id = "DL84", dir = "V", face = 0,   name = "竖墙1" },
-    { index = 5, x = -12457.2, y = 2074.7, id = "DL84", dir = "V", face = 0,   name = "竖墙2" },
-    { index = 6, x = -11647.0, y = 2867.7, id = "DL84", dir = "V", face = 0,   name = "竖墙3" },
+    { index = 1, x = -8543.2,  y = 3544.7, id = "B000", dir = "H", face = 270, name = "横墙 1" },
+    { index = 2, x = -12897.8, y = 3844.4, id = "B000", dir = "H", face = 270, name = "横墙 2" },
+    { index = 3, x = -10070.3, y = 5306.5, id = "B000", dir = "H", face = 270, name = "横墙 3" },
+    { index = 4, x = -9596.7,  y = 4296.7, id = "DL84", dir = "V", face = 0,   name = "竖墙 1" },
+    { index = 5, x = -12457.2, y = 2074.7, id = "DL84", dir = "V", face = 0,   name = "竖墙 2" },
+    { index = 6, x = -11647.0, y = 2867.7, id = "DL84", dir = "V", face = 0,   name = "竖墙 3" },
 }
 
 Layer4.handles     = {}    -- destructable handle 列表
@@ -65,7 +64,7 @@ Layer4.rectListeners = nil -- "A:A" / "B:B" -> Event
 Layer4.deathListener = nil
 
 --|=============================================================
--- §2a: 玩法1 配置
+-- §2a: 玩法 1 配置
 --|=============================================================
 Layer4.play1Config = {
     pos     = { x = -8524.9, y = 3091.9 },
@@ -77,7 +76,7 @@ Layer4.play1Config = {
 }
 Layer4.play1Unit      = nil
 
--- 获取敌方玩家（固定为玩家4）
+-- 获取敌方玩家（固定为玩家 4）
 local function getEnemyPlayer()
     return Player:new(4)
 end
@@ -122,7 +121,7 @@ function Layer4.createWalls()
     print("[Layer4] §1b: 开始创建墙体（跳过 index 4/6）...")
     for _, w in ipairs(Layer4.walls) do
         if w.index == 4 or w.index == 6 then
-            print(string.format("  ⊘ %s(index=%d) 跳过创建(关卡4默认不创建)", w.name, w.index))
+            print(string.format("  ⊘ %s(index=%d) 跳过创建 (关卡 4 默认不创建)", w.name, w.index))
         else
             local h = createOne(w)
             if h then
@@ -149,7 +148,7 @@ function Layer4.destroyWalls()
 end
 
 --|=============================================================
--- §2b: 玩法2 逻辑
+-- §2b: 玩法 2 逻辑
 --|=============================================================
 function Layer4.createPlay2Wall1()
     if Layer4.play2Triggered then return end
@@ -203,13 +202,13 @@ local function onMobSpawnRectEnter(rectId, unit)
         print(string.format("[Layer4] §2b: 玩家%d 英雄进入矩形%s 已记录", pid, rectId))
     end
     if isAllUserHeroesEntered() then
-        print(string.format("[Layer4] §2b: 所有用户玩家英雄已进入A/B，矩形%s触发 创建竖墙1", rectId))
+        print(string.format("[Layer4] §2b: 所有用户玩家英雄已进入 A/B，矩形%s触发 创建竖墙 1", rectId))
         Layer4.createPlay2Wall1()
     else
         local active = getActiveUserPids()
         local entered = 0
         for _, apid in ipairs(active) do if Layer4.play2EnteredPids[apid] then entered = entered + 1 end end
-        print(string.format("[Layer4] §2b: 等待所有玩家进入A/B [%d/%d] rect=%s pid=%d", entered, #active, rectId, pid))
+        print(string.format("[Layer4] §2b: 等待所有玩家进入 A/B [%d/%d] rect=%s pid=%d", entered, #active, rectId, pid))
     end
 end
 
@@ -227,7 +226,7 @@ local function initMobSpawnRectListeners()
     for _, cfg in ipairs(Layer4.mobSpawnRectsA) do
         local r = makeRect(cfg)
         if r then
-            print(string.format("[Layer4] §2b: 监听矩形A[%s] %.1f,%.1f -> %.1f,%.1f", cfg.id, r:getMinX(), r:getMinY(), r:getMaxX(), r:getMaxY()))
+            print(string.format("[Layer4] §2b: 监听矩形 A[%s] %.1f,%.1f -> %.1f,%.1f", cfg.id, r:getMinX(), r:getMinY(), r:getMaxX(), r:getMaxY()))
             local rid = cfg.id
             local ev = Event:newRect(r, function(ev)
                 if Layer4.finished then return end
@@ -247,7 +246,7 @@ local function initMobSpawnRectListeners()
     for _, cfg in ipairs(Layer4.mobSpawnRectsB) do
         local r = makeRect(cfg)
         if r then
-            print(string.format("[Layer4] §2b: 监听矩形B[%s] %.1f,%.1f -> %.1f,%.1f", cfg.id, r:getMinX(), r:getMinY(), r:getMaxX(), r:getMaxY()))
+            print(string.format("[Layer4] §2b: 监听矩形 B[%s] %.1f,%.1f -> %.1f,%.1f", cfg.id, r:getMinX(), r:getMinY(), r:getMaxX(), r:getMaxY()))
             local rid = cfg.id
             local ev = Event:newRect(r, function(ev)
                 if Layer4.finished then return end
@@ -285,8 +284,9 @@ local function destroyMobSpawnRectListeners()
 end
 
 --|=============================================================
--- §2a: 玩法1
+-- §2a: 玩法 1
 --|=============================================================
+
 
 
 function Layer4.createPlay1Boss()
@@ -395,7 +395,7 @@ end
 
 --|=============================================================
 -- §2 怪物 ID 注册（用户提供的怪物列表）
--- 注：nPo0 和 nx20 已分别作为玩法 4 和玩法 3 的 BOSS 单独配置
+-- 注：nPo0 和 nx20 已分别作为玩法 4 和玩法 3 的 BOSS 单独注册
 --|=============================================================
 Layer4.registeredMobIds = {
     "n8st", "ncE7", "n8b9", "n113", "n3pi", "nv16", "nn7s", "nlok", "n0m1", "ny5m",
@@ -500,13 +500,18 @@ end
 -- 启动刷怪真计时器（间隔 1.5 秒，周期性刷怪）
 function Layer4.startMobSpawnerTimer()
     if Layer4.play2MobTimer then return end
+    if not Layer4.play2Triggered then
+        print("[Layer4] §2b: 警告：尝试启动计时器但玩法 2 未触发")
+        return
+    end
     print("[Layer4] §2b: 启动刷怪真计时器...")
     Layer4.play2MobTimer = Timer:new(1.5, true, function()
         if not Layer4.play2Triggered or Layer4.finished then return end
+        print("[Layer4] §2b: 计时器触发，开始刷怪...")
         Layer4.spawnOneMob()
     end)
     Layer4.play2MobTimer:start()
-    print("[Layer4] 刷怪计时器已启动")
+    print("[Layer4] 刷怪计时器已启动 (1.5 秒/次)")
 end
 
 -- 停止刷怪计时器
@@ -526,6 +531,63 @@ function Layer4.getRandomMobId()
     return ids[idx]
 end
 
+-- 检查周围 800 码内是否有敌对单位
+-- 使用 Group 类遍历单位，避免直接使用底层 API
+function Layer4.canSpawnMob()
+    local spawnPos = {}
+    -- 选择随机刷怪区
+    local rects = Layer4.mobSpawnRectsA
+    local rect = rects[math.random(1, #rects)]
+    
+    -- 计算随机位置
+    local minx = rect.cx - rect.width / 2
+    local miny = rect.cy - rect.height / 2
+    local maxx = rect.cx + rect.width / 2
+    local maxy = rect.cy + rect.height / 2
+    local x = minx + math.random() * (maxx - minx)
+    local y = miny + math.random() * (maxy - miny)
+    
+    spawnPos.x = x
+    spawnPos.y = y
+    
+    local enemyCount = 0
+    
+    -- 使用 Group 枚举所有玩家的所有单位
+    local g = Group:new()
+    g:enumPlayer(0, nil)  -- 枚举玩家 0 的所有单位（会遍历所有玩家）
+    
+    -- 遍历所有单位，检查距离
+    for _, u in ipairs(g) do
+        -- 获取单位坐标
+        local ux, uy = u:getX(), u:getY()
+        if ux and uy then
+            -- 计算距离
+            local dx = ux - spawnPos.x
+            local dy = uy - spawnPos.y
+            local dist = math.sqrt(dx * dx + dy * dy)
+            
+            -- 距离小于 800 码
+            if dist < 800 then
+                -- 检查是否是敌方单位（非玩家 0-3，即非我方）
+                local owner = u:getOwner()
+                if owner and owner:getId() >= 4 then  -- 玩家 4 及以后是敌方
+                    enemyCount = enemyCount + 1
+                    if enemyCount <= 3 then
+                        print(string.format("[Layer4] §2b: 发现第%d个敌对单位 %s 在 %.1f,%.1f，距离 %.1f 码", enemyCount, u:getName(), ux, uy, dist))
+                    end
+                end
+            end
+        end
+    end
+    
+    -- 如果有敌对单位在 800 码内，不允许刷怪
+    if enemyCount > 0 then
+        return false
+    end
+    
+    return true
+end
+
 -- 在刷怪区 A 或 B 的随机位置生成一个单位
 function Layer4.spawnOneMob()
     -- 统计所有敌方玩家（4-11）的存活单位数
@@ -540,6 +602,12 @@ function Layer4.spawnOneMob()
     -- 每个玩家最多 20 个，总共 7 个玩家 = 140 个上限
     if totalAlive >= 140 then
         print(string.format("[Layer4] §2b: 达到上限 %d/140，暂停刷怪", totalAlive))
+        return
+    end
+    
+    -- 检查周围 800 码内是否有敌对单位
+    if not Layer4.canSpawnMob() then
+        print(string.format("[Layer4] §2b: 周围 800 码内有敌对单位，跳过刷怪"))
         return
     end
     
@@ -592,6 +660,7 @@ function Layer4.spawnOneMob()
         -- 添加到句柄列表，用于死亡监听
         table.insert(Layer4.play2MobHandles, u._handle)
         print(string.format("[Layer4] §2b: 在 %.1f,%.1f 创建怪物 %s 给玩家%d", x, y, mobId, bestPlayer:getId()))
+        print(string.format("[Layer4] §2b: 当前刷怪单位总数：%d / 上限：140", #Layer4.play2MobHandles, 140))
         
         -- 可选：设置单位属性（如 HP、护甲等）
         -- u:setLife(1000)
