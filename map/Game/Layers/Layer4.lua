@@ -71,6 +71,7 @@ Layer4.play1Config = {
     pos     = { x = -8524.9, y = 3091.9 },
     unitId  = "n89f",
     facing  = 270,
+    armor   = 50,        -- Boss 物理护甲（魔法抗性也用这个值）
     magic   = 2000,
     maxMana = 5000,
 }
@@ -282,20 +283,16 @@ local function getEnemyPlayer()
 end
 
 function Layer4.createPlay1Boss()
-    if Layer4.play1Unit then print("[Layer4] §2a: 玩法1怪物已存在") return end
+    if Layer4.play1Unit then print("[Layer4] §2a: 玩法 1 怪物已存在") return end
     local p = getEnemyPlayer()
     if not p then print("[Layer4] §2a: Player 4 nil") return end
     local u = Unit:new(p, Layer4.play1Config.unitId, Layer4.play1Config.pos.x, Layer4.play1Config.pos.y, Layer4.play1Config.facing)
-    if not u or not u._handle then
-        print(string.format("[Layer4] §2a: 创建n89f失败 %.1f,%.1f", Layer4.play1Config.pos.x, Layer4.play1Config.pos.y))
-        return
-    end
-    -- [魔法强化] 每 1000 点 = +100% 魔法伤害（仅魔法伤害生效）
-    -- 直接设置 Unit.state.magicAmp，GameDamage 会自动读取并应用增伤
-    local maValue = Layer4.play1Config.magic or 2000  -- 默认 2000 = +200%
-    u.state.magicAmp = maValue
-    print(string.format("[Layer4] §2a: ✓ n89f 已创建 %.1f,%.1f | 魔法强化 = %d (每 1000 点=+100%%)", 
-        Layer4.play1Config.pos.x, Layer4.play1Config.pos.y, maValue))
+    if not u or not u._handle then return end
+    local maValue = Layer4.play1Config.magic or 2000  -- 每千点=+100% 魔伤增幅
+
+    u.state.magicAmp = maValue                        -- [魔法强化]
+    u.state.resMag = u:getState(UNIT_STATE_DEFEND_WHITE)
+
     Layer4.play1Unit = u
 end
 
