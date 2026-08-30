@@ -532,7 +532,7 @@ function Layer4.getRandomMobId()
 end
 
 -- 检查周围 800 码内是否有敌对单位
--- 使用 Group 类遍历单位，避免直接使用底层 API
+-- 使用 Group:enumRange 高效枚举 800 码内单位，再过滤敌方（玩家 4+）
 function Layer4.canSpawnMob()
     local spawnPos = {}
     -- 选择随机刷怪区
@@ -552,25 +552,21 @@ function Layer4.canSpawnMob()
     
     local enemyCount = 0
     
-    -- 使用 Group 枚举所有玩家的所有单位
+    -- 使用 Group 枚举 800 码内所有单位（底层遍历 _unitPool，范围过滤）
     local g = Group:new()
-    g:enumPlayer(0, nil)  -- 枚举玩家 0 的所有单位（会遍历所有玩家）
+    g:enumRange(x, y, 800, nil)
     
-    -- 遍历所有单位，检查距离
-    for _, u in ipairs(g) do
-        -- 获取单位坐标
+    g:forEach(function(handle)
+        local u = Unit.fromHandle(handle)
+        if not u then return end
         local ux, uy = u:getX(), u:getY()
         if ux and uy then
-            -- 计算距离
             local dx = ux - spawnPos.x
             local dy = uy - spawnPos.y
             local dist = math.sqrt(dx * dx + dy * dy)
-            
-            -- 距离小于 800 码
             if dist < 800 then
-                -- 检查是否是敌方单位（非玩家 0-3，即非我方）
                 local owner = u:getOwner()
-                if owner and owner:getId() >= 4 then  -- 玩家 4 及以后是敌方
+                if owner and owner:getId() >= 4 then
                     enemyCount = enemyCount + 1
                     if enemyCount <= 3 then
                         print(string.format("[Layer4] §2b: 发现第%d个敌对单位 %s 在 %.1f,%.1f，距离 %.1f 码", enemyCount, u:getName(), ux, uy, dist))
@@ -578,9 +574,8 @@ function Layer4.canSpawnMob()
                 end
             end
         end
-    end
+    end)
     
-    -- 如果有敌对单位在 800 码内，不允许刷怪
     if enemyCount > 0 then
         return false
     end
@@ -673,22 +668,15 @@ end
 -- 统计指定玩家的存活单位数（不包括 BOSS）
 function Layer4.countAliveUnits(p)
     if not p then return 0 end
+    local g = Group:new()
+    g:enumPlayer(p._handle or cj.Player(p:getId()))
     local count = 0
-    for i = 0, cj.MAX_UNIT_COUNT - 1 do
-        local u = cj.GetUnitOfPlayer(i, p:handle())
-        if u and cj.IsUnitAlive(u) then
-            -- 排除 BOSS 单位（可以通过句柄判断）
-            -- 这里简单判断：BOSS 通常是单独创建的，不在单位的 owner 列表中循环出现
-            local okU, unitObj = pcall(Unit.fromHandle, u)
-            if okU and unitObj then
-                -- 简单的过滤：如果单位在 play2MobHandles 中，就不算（但这里我们存的是 handle，不是对象）
-                -- 更准确的方式：通过 Unit:handleId() 与 play2MobHandles 对比
-                -- 但这里我们直接判断：如果是 BOSS，通常不会循环出现多次
-                -- 所以简单统计所有存活单位即可
-                count = count + 1
-            end
+    g:forEach(function(handle)
+        local u = Unit.fromHandle(handle)
+        if u and not u:isType(UNIT_TYPE_DEAD) then
+            count = count + 1
         end
-    end
+    end)
     return count
 end
 
@@ -712,11 +700,14 @@ function Layer4.onMobDeath(handle)
     end
     if totalAlive < 140 then
         -- 延迟 0.5 秒再刷，避免瞬间刷太多
-        Timer.delayed(function()
+        -- Timer:delayed 不存在，改用 Timer:new + 手动销毁
+        local t = Timer:new(0.5, false, function(timer)
             if Layer4.play2Triggered and not Layer4.finished then
                 Layer4.spawnOneMob()
             end
-        end, 0.5)
+        end)
+        -- 计时器到期后自动销毁
+        t:destroy()
     end
 end
 
