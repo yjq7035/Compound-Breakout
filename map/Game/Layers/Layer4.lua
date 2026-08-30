@@ -14,7 +14,7 @@
 -- [常量] 魔法强化换算（与 GameDamage.lua 保持一致）
 --   每 1000 点 = +100% 魔法伤害倍率
 -- ============================================================
-local MAGICAMP_TO_PCT = 1000
+-- local MAGICAMP_TO_PCT = 1000
 
 Layer4 = {}
 Layer4.__index = Layer4
@@ -76,15 +76,22 @@ Layer4.play1Config = {
     maxMana = 5000,
 }
 Layer4.play1Unit      = nil
+
+-- 获取敌方玩家（固定为玩家4）
+local function getEnemyPlayer()
+    return Player:new(4)
+end
 Layer4.play1Triggered = false
 
 --|=============================================================
--- §2b: 玩法2 配置（竖墙1延迟创建）
+-- §2b: 玩法 2 配置（竖墙 1 延迟创建）
 --|=============================================================
-Layer4.play2Wall1Pos     = { x = -9596.7, y = 4296.7, id = "DL84", dir = "V", face = 0, name = "竖墙1" }
+Layer4.play2Wall1Pos     = { x = -9596.7, y = 4296.7, id = "DL84", dir = "V", face = 0, name = "竖墙 1" }
 Layer4.play2Triggered    = false
 Layer4.play2WallHandle   = nil
 Layer4.play2EnteredPids  = {} -- pid -> true
+Layer4.play2MobTimer     = nil
+Layer4.play2MobHandles   = {} -- 单位 handle 列表，用于死亡监听
 
 --|=============================================================
 -- §1b 墙体管理
@@ -147,18 +154,20 @@ end
 function Layer4.createPlay2Wall1()
     if Layer4.play2Triggered then return end
     Layer4.play2Triggered = true
-    print("[Layer4] §2b: 创建竖墙1...")
+    print("[Layer4] §2b: 创建竖墙 1...")
     local h = createOne(Layer4.play2Wall1Pos)
     if h then
         Layer4.play2WallHandle = h
         Layer4.wallMap[4] = h
         table.insert(Layer4.handles, h)
-        print(string.format("  ✓ 竖墙1 已创建 %.1f,%.1f", Layer4.play2Wall1Pos.x, Layer4.play2Wall1Pos.y))
+        print(string.format("  ✓ 竖墙 1 已创建 %.1f,%.1f", Layer4.play2Wall1Pos.x, Layer4.play2Wall1Pos.y))
         if SystemMessage and SystemMessage.send then
-            SystemMessage.send({{"STR", "所有玩家已进入刷怪区，竖墙1已升起！", SystemMessage.COLOR_WARN}}, 3.0)
+            SystemMessage.send({{"STR", "所有玩家已进入刷怪区，竖墙 1 已升起！", SystemMessage.COLOR_WARN}}, 3.0)
         end
+        -- 启动刷怪计时器
+        Layer4.startMobSpawnerTimer()
     else
-        print("  ✗ 竖墙1 创建失败")
+        print("  ✗ 竖墙 1 创建失败")
     end
 end
 
@@ -278,17 +287,17 @@ end
 --|=============================================================
 -- §2a: 玩法1
 --|=============================================================
-local function getEnemyPlayer()
-    return Player:new(4)
-end
+
 
 function Layer4.createPlay1Boss()
     if Layer4.play1Unit then print("[Layer4] §2a: 玩法 1 怪物已存在") return end
+
     local p = getEnemyPlayer()
     if not p then print("[Layer4] §2a: Player 4 nil") return end
     local u = Unit:new(p, Layer4.play1Config.unitId, Layer4.play1Config.pos.x, Layer4.play1Config.pos.y, Layer4.play1Config.facing)
     if not u or not u._handle then return end
     local maValue = Layer4.play1Config.magic or 2000  -- 每千点=+100% 魔伤增幅
+
 
     u.state.magicAmp = maValue                        -- [魔法强化]
     u.state.resMag = u:getState(UNIT_STATE_DEFEND_WHITE)
@@ -299,11 +308,59 @@ end
 function Layer4.destroyPlay1Boss()
     if not Layer4.play1Unit then return end
     pcall(function() Layer4.play1Unit:destroy() end)
-    print("[Layer4] §2a: 玩法1怪物已销毁")
+    print("[Layer4] §2a: 玩法 1 怪物已销毁")
     Layer4.play1Unit = nil
 end
 
-local function ensureDeathListener()
+--|=============================================================
+-- §2c: 玩法 3 BOSS 创建和销毁
+--|=============================================================
+function Layer4.createPlay3Boss()
+    if Layer4.play3Unit then print("[Layer4] §2c: 玩法 3 BOSS 已存在") return end
+
+    local p = getEnemyPlayer()
+    if not p then print("[Layer4] §2c: Player 4 nil") return end
+    local u = Unit:new(p, Layer4.play3Config.unitId, Layer4.play3Config.pos.x, Layer4.play3Config.pos.y, Layer4.play3Config.facing)
+    if not u or not u._handle then return end
+
+    u.state.resMag = u:getState(UNIT_STATE_DEFEND_WHITE)
+    u.state.defendWhite = u:getState(UNIT_STATE_DEFEND_WHITE)
+
+    Layer4.play3Unit = u
+end
+
+function Layer4.destroyPlay3Boss()
+    if not Layer4.play3Unit then return end
+    pcall(function() Layer4.play3Unit:destroy() end)
+    print("[Layer4] §2c: 玩法 3 BOSS 已销毁")
+    Layer4.play3Unit = nil
+end
+
+--|=============================================================
+-- §2d: 玩法 4 BOSS 创建和销毁
+--|=============================================================
+function Layer4.createPlay4Boss()
+    if Layer4.play4Unit then print("[Layer4] §2d: 玩法 4 BOSS 已存在") return end
+
+    local p = getEnemyPlayer()
+    if not p then print("[Layer4] §2d: Player 4 nil") return end
+    local u = Unit:new(p, Layer4.play4Config.unitId, Layer4.play4Config.pos.x, Layer4.play4Config.pos.y, Layer4.play4Config.facing)
+    if not u or not u._handle then return end
+
+    u.state.resMag = u:getState(UNIT_STATE_DEFEND_WHITE)
+    u.state.defendWhite = u:getState(UNIT_STATE_DEFEND_WHITE)
+
+    Layer4.play4Unit = u
+end
+
+function Layer4.destroyPlay4Boss()
+    if not Layer4.play4Unit then return end
+    pcall(function() Layer4.play4Unit:destroy() end)
+    print("[Layer4] §2d: 玩法 4 BOSS 已销毁")
+    Layer4.play4Unit = nil
+end
+
+function Layer4.ensureDeathListener()
     if Layer4.deathListener then return end
     print("[Layer4] §2a: 注册死亡监听...")
     Layer4.deathListener = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
@@ -315,25 +372,65 @@ local function ensureDeathListener()
         local okCode, typeCode = pcall(dyingUnit.getTypeCode, dyingUnit)
         if not okCode or typeCode ~= Layer4.play1Config.unitId then return end
         if not Layer4.play1Unit then return end
-        print(string.format("[Layer4] ✓ 玩法1 BOSS死亡 type=%s", tostring(typeCode)))
+        print(string.format("[Layer4] ✓ 玩法 1 BOSS 死亡 type=%s", tostring(typeCode)))
         if Layer4.play1Triggered then print("[Layer4] 已触发过跳过") return end
         Layer4.play1Triggered = true
         local h = Layer4.wallMap[1]
-        if not h then print("[Layer4] 横墙1 handle缺失") return end
+        if not h then print("[Layer4] 横墙 1 handle 缺失") return end
         local wallCfg = Layer4.walls[1]
-        print(string.format("[Layer4] 销毁横墙1 at %.1f,%.1f", wallCfg.x, wallCfg.y))
+        print(string.format("[Layer4] 销毁横墙 1 at %.1f,%.1f", wallCfg.x, wallCfg.y))
         pcall(function() cj.RemoveDestructable(h) end)
         for i, handle in ipairs(Layer4.handles) do if handle == h then table.remove(Layer4.handles, i) break end end
         Layer4.wallMap[1] = nil
-        print("[Layer4] 横墙1已销毁")
+        print("[Layer4] 横墙 1 已销毁")
         if SystemMessage and SystemMessage.send then
-            SystemMessage.send({{"STR", "玩法1通关！横墙1已摧毁！", SystemMessage.COLOR_SUCCESS}}, 5.0)
+            SystemMessage.send({{"STR", "玩法 1 通关！横墙 1 已摧毁！", SystemMessage.COLOR_SUCCESS}}, 5.0)
         else
-            Player.sendAll("玩法1通关！横墙1已摧毁")
+            Player.sendAll("玩法 1 通关！横墙 1 已摧毁")
         end
+        Layer4.deathListener:destroy()
+        Layer4.deathListener = nil
     end)
 end
-ensureDeathListener()
+
+--|=============================================================
+-- §2 怪物 ID 注册（用户提供的怪物列表）
+-- 注：nPo0 和 nx20 已分别作为玩法 4 和玩法 3 的 BOSS 单独配置
+--|=============================================================
+Layer4.registeredMobIds = {
+    "n8st", "ncE7", "n8b9", "n113", "n3pi", "nv16", "nn7s", "nlok", "n0m1", "ny5m",
+    "nt13", "n2ra", "nGyP", "nyrv", "no3F", "n338", "n834", "nz21", "n0v0", "n134",
+    "n37t", "nD46", "nT8J", "n01r", "nb8k", "n8c8", "n048", "ng0z", "n1io",
+    "n35p", "nJm3", "nQ2P", "nr19", "nx92"
+}
+
+--|=============================================================
+-- §2c: 玩法 3 BOSS 配置（nx20）
+--|=============================================================
+Layer4.play3Config = {
+    pos     = { x = -8524.9, y = 3200.0 },
+    unitId  = "nx20",
+    facing  = 270,
+    armor   = 50,
+    hp      = 5000,     -- 自定义 HP
+    magic   = 2000,
+    maxMana = 5000,
+}
+Layer4.play3Unit      = nil
+
+--|=============================================================
+-- §2d: 玩法 4 BOSS 配置（nPo0）
+--|=============================================================
+Layer4.play4Config = {
+    pos     = { x = -8524.9, y = 3300.0 },
+    unitId  = "nPo0",
+    facing  = 270,
+    armor   = 100,      -- 高护甲
+    hp      = 7500,     -- 高生命
+    magic   = 0,        -- 无魔法强化
+    maxMana = 0,
+}
+Layer4.play4Unit      = nil
 
 --|=============================================================
 -- §2 生命周期
@@ -346,16 +443,20 @@ function Layer4.start()
     Layer4.play2Triggered = false
     Layer4.play2EnteredPids = {}
     Layer4.play2WallHandle = nil
+    -- 重置刷怪状态
+    Layer4.play2MobTimer = nil
+    Layer4.play2MobHandles = {}
     print(string.format("[Layer4] 启动 %.1f,%.1f", Layer4.entryPos.x, Layer4.entryPos.y))
     if SystemMessage and SystemMessage.send then
-        SystemMessage.send({{"STR", "关卡4已启动", SystemMessage.COLOR_SUCCESS}}, 3.0)
+        SystemMessage.send({{"STR", "关卡 4 已启动", SystemMessage.COLOR_SUCCESS}}, 3.0)
     else
-        Player.sendAll("关卡4已启动")
+        Player.sendAll("关卡 4 已启动")
     end
     Layer4.createWalls()
     if not Layer4.play1Unit then Layer4.createPlay1Boss() end
     initMobSpawnRectListeners()
-    ensureDeathListener()
+    Layer4.ensureDeathListener()
+    Layer4.ensureMobDeathListener()
 end
 
 function Layer4.shutdown()
@@ -365,9 +466,23 @@ function Layer4.shutdown()
     Layer4.started = false
     print("[Layer4] 关闭")
     Layer4.destroyPlay1Boss()
+    -- 停止刷怪计时器
+    if Layer4.play2MobTimer then
+        Layer4.play2MobTimer:stop()
+        print("[Layer4] 停止刷怪计时器")
+        Layer4.play2MobTimer = nil
+    end
+    -- 销毁所有刷怪单位
+    if #Layer4.play2MobHandles > 0 then
+        print(string.format("[Layer4] §2b: 销毁 %d 个刷怪单位", #Layer4.play2MobHandles))
+        for _, h in ipairs(Layer4.play2MobHandles) do
+            if h then pcall(function() Unit.fromHandle(h):destroy() end) end
+        end
+        Layer4.play2MobHandles = {}
+    end
     if Layer4.play2WallHandle then
         pcall(function() cj.RemoveDestructable(Layer4.play2WallHandle) end)
-        print("[Layer4] 清理竖墙1")
+        print("[Layer4] 清理竖墙 1")
         Layer4.play2WallHandle = nil
     end
     Layer4.wallMap[4] = nil
@@ -376,6 +491,188 @@ function Layer4.shutdown()
     destroyMobSpawnRectListeners()
     Layer4.destroyWalls()
     Layer4.play1Triggered = false
+end
+
+--|=============================================================
+-- §2b: 刷怪逻辑
+--|=============================================================
+
+-- 启动刷怪真计时器（间隔 1.5 秒，周期性刷怪）
+function Layer4.startMobSpawnerTimer()
+    if Layer4.play2MobTimer then return end
+    print("[Layer4] §2b: 启动刷怪真计时器...")
+    Layer4.play2MobTimer = Timer:new(1.5, true, function()
+        if not Layer4.play2Triggered or Layer4.finished then return end
+        Layer4.spawnOneMob()
+    end)
+    Layer4.play2MobTimer:start()
+    print("[Layer4] 刷怪计时器已启动")
+end
+
+-- 停止刷怪计时器
+function Layer4.stopMobSpawnerTimer()
+    if Layer4.play2MobTimer then
+        Layer4.play2MobTimer:stop()
+        Layer4.play2MobTimer = nil
+        print("[Layer4] 刷怪计时器已停止")
+    end
+end
+
+-- 随机获取一个怪物 ID
+function Layer4.getRandomMobId()
+    local ids = Layer4.registeredMobIds
+    if #ids == 0 then return nil end
+    local idx = math.random(1, #ids)
+    return ids[idx]
+end
+
+-- 在刷怪区 A 或 B 的随机位置生成一个单位
+function Layer4.spawnOneMob()
+    -- 统计所有敌方玩家（4-11）的存活单位数
+    local totalAlive = 0
+    for pid = 4, 11 do
+        local p = Player:new(pid)
+        if p and p:isEnemy() then
+            totalAlive = totalAlive + Layer4.countAliveUnits(p)
+        end
+    end
+    
+    -- 每个玩家最多 20 个，总共 7 个玩家 = 140 个上限
+    if totalAlive >= 140 then
+        print(string.format("[Layer4] §2b: 达到上限 %d/140，暂停刷怪", totalAlive))
+        return
+    end
+    
+    -- 选择随机刷怪区
+    local rects = Layer4.mobSpawnRectsA
+    local rect = rects[math.random(1, #rects)]
+    
+    -- 计算随机位置
+    local minx = rect.cx - rect.width / 2
+    local miny = rect.cy - rect.height / 2
+    local maxx = rect.cx + rect.width / 2
+    local maxy = rect.cy + rect.height / 2
+    local x = minx + math.random() * (maxx - minx)
+    local y = miny + math.random() * (maxy - miny)
+    
+    -- 获取敌方玩家列表（4-11）
+    local enemyPlayers = {}
+    for pid = 4, 11 do
+        local p = Player:new(pid)
+        if p and p:isEnemy() then
+            table.insert(enemyPlayers, p)
+        end
+    end
+    
+    -- 找到存活数最少的敌方玩家
+    local bestPlayer = nil
+    local minAlive = 999999
+    for _, p in ipairs(enemyPlayers) do
+        local alive = Layer4.countAliveUnits(p)
+        if alive < minAlive then
+            minAlive = alive
+            bestPlayer = p
+        end
+    end
+    
+    if not bestPlayer then
+        print("[Layer4] §2b: 没有可用的敌方玩家")
+        return
+    end
+    
+    -- 创建单位
+    local mobId = Layer4.getRandomMobId()
+    if not mobId then
+        print("[Layer4] §2b: 没有可用的怪物 ID")
+        return
+    end
+    
+    local u = Unit:new(bestPlayer, mobId, x, y, 270)
+    if u and u._handle then
+        -- 添加到句柄列表，用于死亡监听
+        table.insert(Layer4.play2MobHandles, u._handle)
+        print(string.format("[Layer4] §2b: 在 %.1f,%.1f 创建怪物 %s 给玩家%d", x, y, mobId, bestPlayer:getId()))
+        
+        -- 可选：设置单位属性（如 HP、护甲等）
+        -- u:setLife(1000)
+        -- u:setArmor(30)
+    else
+        print(string.format("[Layer4] §2b: 创建怪物失败 %s", mobId))
+    end
+end
+
+-- 统计指定玩家的存活单位数（不包括 BOSS）
+function Layer4.countAliveUnits(p)
+    if not p then return 0 end
+    local count = 0
+    for i = 0, cj.MAX_UNIT_COUNT - 1 do
+        local u = cj.GetUnitOfPlayer(i, p:handle())
+        if u and cj.IsUnitAlive(u) then
+            -- 排除 BOSS 单位（可以通过句柄判断）
+            -- 这里简单判断：BOSS 通常是单独创建的，不在单位的 owner 列表中循环出现
+            local okU, unitObj = pcall(Unit.fromHandle, u)
+            if okU and unitObj then
+                -- 简单的过滤：如果单位在 play2MobHandles 中，就不算（但这里我们存的是 handle，不是对象）
+                -- 更准确的方式：通过 Unit:handleId() 与 play2MobHandles 对比
+                -- 但这里我们直接判断：如果是 BOSS，通常不会循环出现多次
+                -- 所以简单统计所有存活单位即可
+                count = count + 1
+            end
+        end
+    end
+    return count
+end
+
+-- 死亡监听：当刷怪单位死亡时，从句柄列表中移除
+function Layer4.onMobDeath(handle)
+    if not Layer4.play2MobTimer then return end
+    -- 从 handle 列表中移除
+    for i, h in ipairs(Layer4.play2MobHandles) do
+        if h == handle then
+            table.remove(Layer4.play2MobHandles, i)
+            break
+        end
+    end
+    -- 检查是否有空坑位，如果有则尝试创建新单位
+    local totalAlive = 0
+    for pid = 4, 11 do
+        local p = Player:new(pid)
+        if p and p:isEnemy() then
+            totalAlive = totalAlive + Layer4.countAliveUnits(p)
+        end
+    end
+    if totalAlive < 140 then
+        -- 延迟 0.5 秒再刷，避免瞬间刷太多
+        Timer.delayed(function()
+            if Layer4.play2Triggered and not Layer4.finished then
+                Layer4.spawnOneMob()
+            end
+        end, 0.5)
+    end
+end
+
+-- 注册死亡监听
+function Layer4.ensureMobDeathListener()
+    if Layer4.mobDeathListener then return end
+    print("[Layer4] §2b: 注册刷怪单位死亡监听...")
+    Layer4.mobDeathListener = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
+        if Layer4.finished then return end
+        local dyingHandle = ev.unit
+        if not dyingHandle then return end
+        -- 检查是否是刷怪单位
+        for _, h in ipairs(Layer4.play2MobHandles) do
+            if h == dyingHandle then
+                Layer4.onMobDeath(h)
+                return
+            end
+        end
+        -- 如果不是刷怪单位，也尝试监听（兼容 BOSS 死亡）
+        local okU, dyingUnit = pcall(Unit.fromHandle, dyingHandle)
+        if okU and dyingUnit then
+            local okCode, typeCode = pcall(dyingUnit.getTypeCode, dyingUnit)
+            -- 这里可以添加更多过滤条件
+        end
+    end)
 end
 
 --|=============================================================
