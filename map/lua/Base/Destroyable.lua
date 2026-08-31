@@ -1,190 +1,211 @@
 -- ============================================================
--- Destroyable 类 — 可破坏物（基础 OOP 层）
--- 调用方式：
---   local d = Destroyable:new(x, y, typeId, facing, scale, variation)
---   local d = Destroyable:new(x, y, typeId)  -- 简写（默认 facing=0, scale=1, variation=0）
---   d:setLife(100)
---   d:takeDamage(30)
---   d:destroy()
---   local d = Destroyable.fromHandle(h)
+-- Destroyable 类 — 可破坏物
+-- 风格参照 Item.lua：单一 fromHandleCache、isValid 守卫、链式返回
 -- ============================================================
 
 ---@class Destroyable 可破坏物
 Destroyable = {}
 Destroyable.__index = Destroyable
 
----@class DestroyableState 可破坏物状态
-Destroyable._handle = nil
-Destroyable._index = nil
-Destroyable._id = nil
-
--- 生命值
-Destroyable.life = 0
--- 最大生命值
-Destroyable.maxLife = 0
--- 是否已破坏
-Destroyable.isDestroyed = false
-
--- 可破坏物对象映射表（handle -> Destroyable）
-local destroyableMap = {}
-
--- fromHandle 对象缓存
-local fromHandleCache = {}
-
 ------------------------------------------------------------------
 -- 内部工厂 / 工具
 ------------------------------------------------------------------
 
---- 创建可破坏物对象
----@return table
+local fromHandleCache = {}
+
 local function newDestroyable()
-    local obj = { 
-        _handle = nil, 
-        _index = nil, 
-        _id = nil,
-        life = 0,
-        maxLife = 0,
-        isDestroyed = false
+    local obj = {
+        _handle = nil,
+        _index  = nil,
+        _id     = nil,
+        _type   = nil,
     }
     setmetatable(obj, Destroyable)
     return obj
+end
+
+--- 检查 handle 有效性
+---@return boolean
+local function isValid(self)
+    return self._handle ~= nil and type(self._handle) == "userdata"
 end
 
 ------------------------------------------------------------------
 -- 构造 / 销毁
 ------------------------------------------------------------------
 
---- 在指定坐标创建可破坏物
+--- 创建可破坏物到坐标
 ---@param x number X 坐标
 ---@param y number Y 坐标
----@param typeId string|integer 可破坏物对象 ID（如 'B000'）
----@param facing number|nil 面向角度（默认 0）
----@param scale number|nil 缩放比例（默认 1）
----@param variation integer|nil 变异类型（默认 0）
----@return Destroyable
+---@param typeId string|integer 对象 ID（四字符码或整数）
+---@param facing number|nil 面向角度
+---@param scale number|nil 缩放比例
+---@param variation integer|nil 变异类型
+---@return Destroyable|nil
 function Destroyable:new(x, y, typeId, facing, scale, variation)
-    if (x == nil or y == nil or typeId == nil) then return end
-    
+    if x == nil or y == nil or typeId == nil then return nil end
+    if type(typeId) == "string" then typeId = c2i(typeId) end
+
+    local handle = cj.CreateDestructable(
+        typeId, x, y, facing or 0, scale or 1, variation or 0
+    )
+    if type(handle) ~= "userdata" then return nil end
+
     local obj = newDestroyable()
-    
-    -- cj.CreateDestructable 参数：
-    -- objectid(integer), x(real), y(real), face(real), scale(real), variation(integer)
-    local handle = cj.CreateDestructable(c2i(typeId), x, y, facing or 0, scale or 1, variation or 0)
-    
-    if (handle == nil) then return end
-    
     obj._handle = handle
-    obj._index = cj.GetHandleId(handle)
-    obj._id = typeId
-    
-    -- 默认生命值
-    obj.maxLife = 100
-    obj.life = 100
-    
-    -- 注册到映射表
-    destroyableMap[obj._index] = obj
+    obj._index  = cj.GetHandleId(handle)
+    obj._id     = typeId
+    obj._type   = i2c(typeId)
+
+    Unit.embed(handle, { id = obj._type, destroyable = obj._index })
     fromHandleCache[obj._index] = obj
-    
-    -- 嵌入框架映射
-    Unit.embed(obj._handle, { 
-        id = obj._id,
-        destroyable = obj._index 
-    })
-    
+
     return obj
 end
 
---- 从已有 handle 创建 Destroyable 对象
+--- 从已有 handle 创建/获取 Destroyable 对象（带缓存）
 ---@param h userdata 可破坏物 handle
 ---@return Destroyable|nil
 function Destroyable.fromHandle(h)
-    if (h == nil) then return end
+    if h == nil then return nil end
     local key = cj.GetHandleId(h)
     local cached = fromHandleCache[key]
     if cached and cached._handle == h then
         return cached
     end
-    -- handle 已销毁或缓存失效，清理
-    if destroyableMap[key] then
-        destroyableMap[key] = nil
-    end
-    return nil
+    local obj = newDestroyable()
+    obj._handle = h
+    obj._index  = key
+    obj._id     = cj.GetDestructableTypeId(h)
+    obj._type   = i2c(obj._id)
+    fromHandleCache[key] = obj
+    return obj
 end
 
 --- 销毁可破坏物
 ---@return Destroyable
 function Destroyable:destroy()
-    if (self._handle == nil) then return self end
-    
+    if not isValid(self) then return self end
+
     if self._index then
-        -- 从缓存中移除
         fromHandleCache[self._index] = nil
-        -- 从框架映射中清理
         Unit.removeData(self._handle)
-        destroyableMap[self._index] = nil
     end
-    
-    -- cj.RemoveDestructable 删除可破坏物
+
     cj.RemoveDestructable(self._handle)
     self._handle = nil
-    self.isDestroyed = true
-    
     return self
 end
 
---- 检查可破坏物是否有效
+--- 检查是否有效（handle 存在且未销毁）
 ---@return boolean
 function Destroyable:isValid()
-    return self._handle ~= nil and not self.isDestroyed
-end
-
---- 检查可破坏物是否已破坏
----@return boolean
-function Destroyable:IsDestroyed()
-    return self.isDestroyed
+    return isValid(self)
 end
 
 ------------------------------------------------------------------
--- 生命值管理
+-- 标识
 ------------------------------------------------------------------
+
+--- 获取对象 ID（数字）
+---@return integer
+function Destroyable:getId()
+    if not isValid(self) then return 0 end
+    return cj.GetDestructableTypeId(self._handle)
+end
+
+--- 获取类型码（四字符）
+---@return string
+function Destroyable:getTypeCode()
+    return i2c(self:getId())
+end
+
+--- 获取名称
+---@return string
+function Destroyable:getName()
+    if not isValid(self) then return "" end
+    return cj.GetDestructableName(self._handle)
+end
+
+------------------------------------------------------------------
+-- 位置
+------------------------------------------------------------------
+
+--- 获取 X 坐标
+---@return number
+function Destroyable:getX()
+    if not isValid(self) then return 0 end
+    return cj.GetDestructableX(self._handle)
+end
+
+--- 获取 Y 坐标
+---@return number
+function Destroyable:getY()
+    if not isValid(self) then return 0 end
+    return cj.GetDestructableY(self._handle)
+end
+
+------------------------------------------------------------------
+-- 生命值
+------------------------------------------------------------------
+
+--- 获取当前生命值
+---@return number
+function Destroyable:getLife()
+    if not isValid(self) then return 0 end
+    return cj.GetDestructableLife(self._handle)
+end
+
+--- 获取最大生命值
+---@return number
+function Destroyable:getMaxLife()
+    if not isValid(self) then return 0 end
+    return cj.GetDestructableMaxLife(self._handle)
+end
 
 --- 设置生命值
 ---@param life number 生命值
 ---@return Destroyable
 function Destroyable:setLife(life)
-    if (self._handle ~= nil and life ~= nil) then
-        -- cj.SetDestructableLife 参数：destructable, lifeMax, lifeCur
-        cj.SetDestructableLife(self._handle, cj.c2i("100"), cj.c2i(life))
-        self.life = life
-    end
+    if not isValid(self) or life == nil then return self end
+    cj.SetDestructableLife(self._handle, life)
     return self
 end
 
---- 设置最大生命值
+--- 设置最大生命值（当前生命会被限制到新最大值）
 ---@param maxLife number 最大生命值
 ---@return Destroyable
 function Destroyable:setMaxLife(maxLife)
-    if (self._handle ~= nil and maxLife > 0) then
-        cj.SetDestructableLife(self._handle, cj.c2i(maxLife), cj.c2i(math.min(self.life, maxLife)))
-        self.maxLife = maxLife
-        self.life = math.min(self.life, maxLife)
+    if not isValid(self) or maxLife == nil or maxLife <= 0 then return self end
+    cj.SetDestructableMaxLife(self._handle, maxLife)
+    -- 若当前生命超过新最大值，同步压低
+    if self:getLife() > maxLife then
+        cj.SetDestructableLife(self._handle, maxLife)
     end
     return self
 end
 
---- 增加生命值
+--- 增加生命值（不会超过最大值）
 ---@param amount number 增加量
 ---@return Destroyable
 function Destroyable:addLife(amount)
-    if (self._handle ~= nil and amount > 0) then
-        local newLife = math.min(self.maxLife, self.life + amount)
-        cj.SetDestructableLife(self._handle, cj.c2i("100"), cj.c2i(newLife))
-        self.life = newLife
-    end
+    if not isValid(self) or amount == nil or amount <= 0 then return self end
+    local newLife = math.min(self:getMaxLife(), self:getLife() + amount)
+    cj.SetDestructableLife(self._handle, newLife)
     return self
 end
 
---- 减少生命值（等同于受到伤害）
+--- 受到伤害（生命值减少，不会低于 0）
+---@param amount number 伤害量
+---@return Destroyable
+function Destroyable:takeDamage(amount)
+    if not isValid(self) or amount == nil or amount <= 0 then return self end
+    local newLife = math.max(0, self:getLife() - amount)
+    cj.SetDestructableLife(self._handle, newLife)
+    return self
+end
+
+--- 减少生命值（takeDamage 别名）
 ---@param amount number 减少量
 ---@return Destroyable
 function Destroyable:subLife(amount)
@@ -192,147 +213,115 @@ function Destroyable:subLife(amount)
 end
 
 ------------------------------------------------------------------
--- 伤害系统
+-- 状态
 ------------------------------------------------------------------
 
---- 受到伤害
----@param dmg number 伤害值
+--- 设置无敌
+---@param flag boolean 是否无敌
 ---@return Destroyable
-function Destroyable:takeDamage(dmg)
-    if (self._handle == nil or self.isDestroyed) then return self end
-    
-    -- 应用伤害
-    self.life = self.life - dmg
-    
-    -- 检查是否死亡
-    if (self.life <= 0) then
-        self.life = 0
-        self:destroy()
-    end
-    
+function Destroyable:setInvulnerable(flag)
+    if not isValid(self) then return self end
+    cj.SetDestructableInvulnerable(self._handle, flag == true)
     return self
 end
 
---- 受到穿透伤害（无视防御）
----@param dmg number 伤害值
+--- 是否无敌
+---@return boolean
+function Destroyable:isInvulnerable()
+    if not isValid(self) then return false end
+    return cj.IsDestructableInvulnerable(self._handle)
+end
+
+--- 设置可见性（显示/隐藏）
+---@param flag boolean|showhideoption 可见性
 ---@return Destroyable
-function Destroyable:takePierceDamage(dmg)
-    if (self._handle == nil or self.isDestroyed) then return self end
-    
-    self.life = self.life - dmg
-    
-    if (self.life <= 0) then
-        self.life = 0
-        self:destroy()
-    end
-    
+function Destroyable:setVisible(flag)
+    if not isValid(self) then return self end
+    cj.ShowDestructable(self._handle, flag)
     return self
 end
 
---- 受到致命伤害（直接销毁）
----@param dmg number 伤害值
----@return Destroyable
-function Destroyable:takeFatalDamage(dmg)
-    if (self._handle == nil) then return self end
-    
-    self:destroy()
-    return self
-end
+------------------------------------------------------------------
+-- 闭塞高度
+------------------------------------------------------------------
 
---- 修复生命值
----@param heal number 治疗量
----@return Destroyable
-function Destroyable:heal(heal)
-    if (self._handle == nil or self.isDestroyed) then return self end
-    
-    self.life = math.min(self.maxLife, self.life + heal)
-    cj.SetDestructableLife(self._handle, cj.c2i("100"), cj.c2i(self.life))
-    return self
-end
-
---- 复活可破坏物（从死亡状态恢复生命）
----@param life number 生命值
----@param birth boolean 是否重生成
----@return Destroyable
-function Destroyable:restoreLife(life, birth)
-    if (self._handle == nil) then return self end
-    
-    -- cj.DestructableRestoreLife 参数：destructable, life, birth
-    cj.DestructableRestoreLife(self._handle, life or 100, birth or true)
-    self.life = life or 100
-    return self
-end
-
---- 获取当前生命值百分比
----@return number 0-100
-function Destroyable:getLifePercent()
-    if (self.maxLife == 0) then return 0 end
-    return (self.life / self.maxLife) * 100
-end
-
---- 获取剩余生命值
+--- 获取闭塞高度
 ---@return number
-function Destroyable:getRemainingLife()
-    return self.life
+function Destroyable:getOccluderHeight()
+    if not isValid(self) then return 0 end
+    return cj.GetDestructableOccluderHeight(self._handle)
 end
 
---- 获取最大生命值
----@return number
-function Destroyable:getMaxLife()
-    return self.maxLife
-end
-
-------------------------------------------------------------------
--- 特效系统
-------------------------------------------------------------------
-
---- 显示受伤特效
----@param effectName string 特效名称（如 "spell_lightning"）
+--- 设置闭塞高度
+---@param height number 高度
 ---@return Destroyable
-function Destroyable:onDamage(effectName)
-    if (self._handle == nil or self.isDestroyed) then return self end
-    
-    -- cj.AddSpecialEffectTarget 参数：
-    -- modelName(string), targetWidget(widget), attachPoint(string)
-    local effect = cj.AddSpecialEffectTarget(effectName, self._handle, "TOP")
-    if (effect ~= nil) then
-        Timer:new(0.5, false, function()
-            if effect ~= nil then
-                effect:destroy()
-                effect = nil
-            end
-        end)
-    end
-    
+function Destroyable:setOccluderHeight(height)
+    if not isValid(self) or height == nil then return self end
+    cj.SetDestructableOccluderHeight(self._handle, height)
     return self
 end
 
---- 显示破坏特效
----@param effectName string 特效名称（如 "titleboom"）
+------------------------------------------------------------------
+-- 动画
+------------------------------------------------------------------
+
+--- 播放动画（队列式）
+---@param animName string 动画名称
 ---@return Destroyable
-function Destroyable:onDestroy(effectName)
-    if (self._handle == nil) then return self end
-    
-    -- cj.AddSpecialEffectTarget 参数：
-    -- modelName(string), targetWidget(widget), attachPoint(string)
-    local effect = cj.AddSpecialEffectTarget(effectName, self._handle, "BOTTOM")
-    if (effect ~= nil) then
-        Timer:new(0.3, false, function()
-            if effect ~= nil then
-                effect:destroy()
-                effect = nil
-            end
-        end)
-    end
-    
+function Destroyable:queueAnimation(animName)
+    if not isValid(self) or animName == nil then return self end
+    cj.QueueDestructableAnimation(self._handle, animName)
     return self
 end
 
---- 获取可破坏物对象（通过 handle）
----@param h userdata 可破坏物 handle
----@return Destroyable|nil
-function Destroyable.get(h)
-    if (h == nil) then return end
-    local key = cj.GetHandleId(h)
-    return destroyableMap[key]
+--- 立即设置动画
+---@param animName string 动画名称
+---@return Destroyable
+function Destroyable:setAnimation(animName)
+    if not isValid(self) or animName == nil then return self end
+    cj.SetDestructableAnimation(self._handle, animName)
+    return self
 end
+
+--- 设置动画速度
+---@param speed number 速度倍率
+---@return Destroyable
+function Destroyable:setAnimationSpeed(speed)
+    if not isValid(self) or speed == nil then return self end
+    cj.SetDestructableAnimationSpeed(self._handle, speed)
+    return self
+end
+
+------------------------------------------------------------------
+-- 静态工具
+------------------------------------------------------------------
+
+--- 获取缓存中的所有 Destroyable 对象
+---@return table
+function Destroyable.getAll()
+    local result = {}
+    for _, obj in pairs(fromHandleCache) do
+        if isValid(obj) then
+            table.insert(result, obj)
+        end
+    end
+    return result
+end
+
+--- 清理缓存中已失效的对象（定期调用）
+function Destroyable.cleanInvalid()
+    for key, obj in pairs(fromHandleCache) do
+        if not isValid(obj) then
+            fromHandleCache[key] = nil
+        end
+    end
+end
+
+--- 清空所有缓存
+function Destroyable.clearAll()
+    for key in pairs(fromHandleCache) do
+        fromHandleCache[key] = nil
+    end
+end
+
+return Destroyable

@@ -93,6 +93,22 @@ Layer4.play2MobTimer     = nil
 Layer4.play2MobHandles   = {} -- 单位 handle 列表，用于死亡监听
 
 --|=============================================================
+-- §2b-KEY: 玩法 2 钥匙玩法（ao8y 通行旗子）
+--  1) 关卡4创建的单位死亡概率掉落 ao8y
+--  2) 横墙2(index=2) 为通关门，携带钥匙靠近即开门通关
+--|=============================================================
+Layer4.play2KeyConfig = {
+    itemId      = "ao8y",
+    dropChance  = 0.08,  -- 单只死亡掉落概率 8%，可在测试时临时调高
+    doorWallIndex = 2,   -- 横墙2 为通关门
+    doorSize    = { w = 700, h = 700 },
+    finished    = false,
+}
+Layer4.play2DoorRect        = nil
+Layer4.play2DoorEvent       = nil
+Layer4.play2KeyPickupEvent  = nil
+
+--|=============================================================
 -- §1b 墙体管理
 --|=============================================================
 local function createOne(w)
@@ -491,6 +507,9 @@ function Layer4.start()
     -- 重置首次达到上限的状态
     Layer4.play2BonusSpawns = {}
     Layer4.play2HasBonus = false
+    -- 重置钥匙玩法状态
+    Layer4.play2KeyConfig.finished = false
+    Layer4.destroyPlay2KeyListeners() -- 兜底清理旧监听（热重载）
     print(string.format("[Layer4] 启动 %.1f,%.1f", Layer4.entryPos.x, Layer4.entryPos.y))
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", "关卡 4 已启动", SystemMessage.COLOR_SUCCESS}}, 3.0)
@@ -502,6 +521,7 @@ function Layer4.start()
     initMobSpawnRectListeners()
     Layer4.ensureDeathListener()
     Layer4.ensureMobDeathListener()
+    Layer4.ensurePlay2KeyListeners()
 end
 
 function Layer4.shutdown()
@@ -536,6 +556,11 @@ function Layer4.shutdown()
     destroyMobSpawnRectListeners()
     Layer4.destroyWalls()
     Layer4.play1Triggered = false
+    -- 清理钥匙玩法监听/门区域
+    Layer4.destroyPlay2KeyListeners()
+    -- 死亡监听不随关卡销毁（复用时 ensure 会重建），但此处清理 mobDeathListener 便于热重载
+    if Layer4.mobDeathListener then pcall(function() Layer4.mobDeathListener:destroy() end) Layer4.mobDeathListener=nil end
+    if Layer4.deathListener then pcall(function() Layer4.deathListener:destroy() end) Layer4.deathListener=nil end
 end
 
 --|=============================================================
@@ -738,6 +763,14 @@ end
 -- 死亡监听：当刷怪单位死亡时，从句柄列表中移除
 function Layer4.onMobDeath(handle)
     if not Layer4.play2MobTimer then return end
+    -- 钥匙掉落（在移除前触发，确保位置有效）
+    do
+        local okX, x = pcall(cj.GetUnitX, handle)
+        local okY, y = pcall(cj.GetUnitY, handle)
+        if okX and okY and x and y then
+            Layer4.tryDropKeyAt(x, y)
+        end
+    end
     -- 从 handle 列表中移除
     for i, h in ipairs(Layer4.play2MobHandles) do
         if h == handle then
@@ -755,14 +788,12 @@ function Layer4.onMobDeath(handle)
     end
     if totalAlive < 70 then
         -- 延迟 0.5 秒再刷，避免瞬间刷太多
-        -- Timer:delayed 不存在，改用 Timer:new + 手动销毁
-        local t = Timer:new(0.5, false, function(timer)
+        local t = Timer:new(0.5, false, function()
             if Layer4.play2Triggered and not Layer4.finished then
                 Layer4.spawnOneMob()
             end
         end)
-        -- 计时器到期后自动销毁
-        t:destroy()
+        t:start()
     end
 end
 
@@ -774,20 +805,198 @@ function Layer4.ensureMobDeathListener()
         if Layer4.finished then return end
         local dyingHandle = ev.unit
         if not dyingHandle then return end
-        -- 检查是否是刷怪单位
+        -- 检查是否是刷怪单位（关卡4创建的单位）
         for _, h in ipairs(Layer4.play2MobHandles) do
             if h == dyingHandle then
                 Layer4.onMobDeath(h)
                 return
             end
         end
-        -- 如果不是刷怪单位，也尝试监听（兼容 BOSS 死亡）
-        local okU, dyingUnit = pcall(Unit.fromHandle, dyingHandle)
-        if okU and dyingUnit then
-            local okCode, typeCode = pcall(dyingUnit.getTypeCode, dyingUnit)
-            -- 这里可以添加更多过滤条件
+        -- 兼容：未在列表但属于玩法2创建的敌方单位也尝试掉落（兜底：玩家4-11刷的怪可能句柄已失效但类型在列表内）
+        -- 仅对关卡4刷怪计时器存在期间生效
+        if Layer4.play2Triggered then
+            local okOwner, owner = pcall(function() return cj.GetOwningPlayer(dyingHandle) end)
+            if okOwner and owner then
+                local pid = cj.GetPlayerId(owner)
+                if pid >= 4 and pid <= 11 then
+                    local tid = cj.GetUnitTypeId(dyingHandle)
+                    local tstr = i2c(tid)
+                    for _, mid in ipairs(Layer4.registeredMobIds) do
+                        if mid == tstr then
+                            local okX, x = pcall(cj.GetUnitX, dyingHandle)
+                            local okY, y = pcall(cj.GetUnitY, dyingHandle)
+                            if okX and okY and x and y then Layer4.tryDropKeyAt(x, y) end
+                            break
+                        end
+                    end
+                end
+            end
         end
     end)
+end
+
+--|=============================================================
+-- §2b-KEY: 钥匙掉落 / 持有检测 / 开门通关
+--|=============================================================
+function Layer4.hasUnitKey(uHandle)
+    if not uHandle then return false, nil end
+    local keyId = c2i(Layer4.play2KeyConfig.itemId)
+    if not keyId or keyId == 0 then return false, nil end
+    for slot = 0, 5 do
+        local it = cj.UnitItemInSlot(uHandle, slot)
+        if it and cj.GetItemTypeId(it) == keyId then
+            return true, it
+        end
+    end
+    return false, nil
+end
+
+function Layer4.tryDropKeyAt(x, y)
+    if Layer4.play2KeyConfig.finished then return end
+    if not x or not y then return end
+    local chance = Layer4.play2KeyConfig.dropChance or 0.08
+    if math.random() >= chance then return end
+    local itemIdStr = Layer4.play2KeyConfig.itemId
+    local ok, it = pcall(function() return Item:new(itemIdStr, x, y) end)
+    if not ok or not it or not it._handle then
+        -- 兜底直接用原生创建
+        local iid = c2i(itemIdStr)
+        if iid and iid ~= 0 then
+            local h = cj.CreateItem(iid, x, y)
+            if h then print(string.format("[Layer4] §2b-KEY: 钥匙掉落(原生) %s at %.1f,%.1f", itemIdStr, x, y)) end
+        end
+        return
+    end
+    print(string.format("[Layer4] §2b-KEY: 钥匙掉落 %s at %.1f,%.1f", itemIdStr, x, y))
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", "钥匙已掉落！拾取后前往横墙2开门通关！", SystemMessage.COLOR_WARN}}, 3.0)
+    end
+end
+
+function Layer4.onPlay2DoorOpen(heroHandle, itemHandle)
+    if Layer4.play2KeyConfig.finished then return end
+    Layer4.play2KeyConfig.finished = true
+    -- 消耗钥匙
+    if heroHandle and itemHandle then
+        pcall(function()
+            cj.UnitRemoveItem(heroHandle, itemHandle)
+            cj.RemoveItem(itemHandle)
+        end)
+    else
+        local has, it = Layer4.hasUnitKey(heroHandle)
+        if has and it then pcall(function() cj.UnitRemoveItem(heroHandle, it); cj.RemoveItem(it) end) end
+    end
+    -- 销毁横墙2（通关门）
+    local wallIdx = Layer4.play2KeyConfig.doorWallIndex
+    local h = Layer4.wallMap[wallIdx]
+    local wallCfg = nil
+    for _, w in ipairs(Layer4.walls) do if w.index == wallIdx then wallCfg = w break end end
+    if h then
+        pcall(cj.RemoveDestructable, h)
+        Layer4.wallMap[wallIdx] = nil
+        for i, handle in ipairs(Layer4.handles) do if handle == h then table.remove(Layer4.handles, i) break end end
+        print("[Layer4] §2b-KEY: 横墙2 已开启销毁 (钥匙开门)")
+    elseif wallCfg then
+        local rect = cj.Rect(wallCfg.x - 96, wallCfg.y - 96, wallCfg.x + 96, wallCfg.y + 96)
+        if rect then
+            pcall(function()
+                cj.EnumDestructablesInRect(rect, nil, function()
+                    local d = cj.GetEnumDestructable()
+                    if d and cj.GetDestructableTypeId(d) == c2i(wallCfg.id) then
+                        local dx, dy = cj.GetDestructableX(d), cj.GetDestructableY(d)
+                        if ((dx - wallCfg.x)^2 + (dy - wallCfg.y)^2)^0.5 < 96 then
+                            pcall(cj.RemoveDestructable, d)
+                        end
+                    end
+                end)
+            end)
+            cj.RemoveRect(rect)
+            print("[Layer4] §2b-KEY: 横墙2 兜底枚举销毁")
+        end
+    end
+    if SystemMessage and SystemMessage.send then
+        local icon = SystemMessage.getUnitIcon and SystemMessage.getUnitIcon(heroHandle) or ""
+        local owner = Player.fromHandle(cj.GetOwningPlayer(heroHandle))
+        local pname = owner and owner:getName() or "英雄"
+        if not pname or pname == "" then pname = string.format("玩家%d", owner and owner:getId() or 0) end
+        local msg = string.format("%s 使用钥匙开启了横墙2，玩法2通关！", pname)
+        if icon and icon ~= "" then
+            SystemMessage.send({{"art", icon}, {"STR", msg, SystemMessage.COLOR_SUCCESS}}, 5.0)
+        else
+            SystemMessage.send({{"STR", msg, SystemMessage.COLOR_SUCCESS}}, 5.0)
+        end
+    else
+        Player.sendAll("玩法2通关！横墙2已开启")
+    end
+    Layer4.destroyPlay2KeyDoor()
+    -- 通关后可选停止刷怪（保留现状以免影响其他玩法）
+    print("[Layer4] §2b-KEY: 玩法2通关完成 (钥匙开门)")
+end
+
+function Layer4.createPlay2KeyDoor()
+    if Layer4.play2DoorRect then return end
+    local wall = nil
+    for _, w in ipairs(Layer4.walls) do if w.index == Layer4.play2KeyConfig.doorWallIndex then wall = w break end end
+    if not wall then print("[Layer4] §2b-KEY: 横墙2 配置缺失") return end
+    local w, h = Layer4.play2KeyConfig.doorSize.w, Layer4.play2KeyConfig.doorSize.h
+    local r = Rect:newCenter(wall.x, wall.y, w, h)
+    if not r or not r._handle then print("[Layer4] §2b-KEY: 门区域创建失败") return end
+    Layer4.play2DoorRect = r
+    print(string.format("[Layer4] §2b-KEY: 通关门检测区域已创建 横墙2 %.1f,%.1f 范围 %.0fx%.0f", wall.x, wall.y, w, h))
+    Layer4.play2DoorEvent = Event:newRect(r, function(ev)
+        if Layer4.finished or Layer4.play2KeyConfig.finished then return end
+        local u = ev.unit or ev._unit or cj.GetEnteringUnit()
+        if not u then return end
+        if not cj.IsUnitType(u, UNIT_TYPE_HERO) then return end
+        local owner = Player.fromHandle(cj.GetOwningPlayer(u))
+        if not owner or not owner:isUser() then return end
+        local pid = owner:getId()
+        if pid < 0 or pid > 3 then return end
+        local has = Layer4.hasUnitKey(u)
+        if not has then return end
+        print(string.format("[Layer4] §2b-KEY: 玩家%d 携带钥匙靠近横墙2，开门", pid))
+        Layer4.onPlay2DoorOpen(u, select(2, Layer4.hasUnitKey(u)))
+    end)
+end
+
+function Layer4.destroyPlay2KeyDoor()
+    -- Event:newRect 共享 region，destroyRect 会清掉整个 region；用 pcall 保护
+    if Layer4.play2DoorRect then
+        pcall(function() Event:destroyRect(Layer4.play2DoorRect) end)
+        pcall(function() Layer4.play2DoorRect:destroy() end)
+        Layer4.play2DoorRect = nil
+    end
+    Layer4.play2DoorEvent = nil
+end
+
+function Layer4.ensurePlay2KeyListeners()
+    if Layer4.play2KeyPickupEvent then return end
+    Layer4.createPlay2KeyDoor()
+    local keyId = c2i(Layer4.play2KeyConfig.itemId)
+    if not keyId or keyId == 0 then print("[Layer4] §2b-KEY: ao8y 的 c2i 转换失败") return end
+    Layer4.play2KeyPickupEvent = Event:new(nil, EVENT_PLAYER_UNIT_PICKUP_ITEM, function(ev)
+        local it = ev.item or cj.GetManipulatedItem()
+        if not it then return end
+        if cj.GetItemTypeId(it) ~= keyId then return end
+        local hero = ev.unit or cj.GetTriggerUnit()
+        if not hero then return end
+        local owner = Player.fromHandle(cj.GetOwningPlayer(hero))
+        local pname = owner and owner:getName() or "未知"
+        if not pname or pname == "" then pname = string.format("玩家%d", owner and owner:getId() or 0) end
+        print(string.format("[Layer4] §2b-KEY: %s 拾取钥匙 %s", pname, Layer4.play2KeyConfig.itemId))
+        if SystemMessage and SystemMessage.send then
+            SystemMessage.send({{"STR", string.format("%s 获得了钥匙！前往横墙2 (-12897,3844) 开门通关！", pname), SystemMessage.COLOR_SUCCESS}}, 5.0)
+        end
+    end)
+    print("[Layer4] §2b-KEY: 钥匙拾取监听已注册 ao8y 横墙2为通关门")
+end
+
+function Layer4.destroyPlay2KeyListeners()
+    if Layer4.play2KeyPickupEvent then
+        pcall(function() Layer4.play2KeyPickupEvent:destroy() end)
+        Layer4.play2KeyPickupEvent = nil
+    end
+    Layer4.destroyPlay2KeyDoor()
 end
 
 --|=============================================================
