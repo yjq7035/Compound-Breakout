@@ -405,6 +405,48 @@ Layer4.registeredMobIds = {
 }
 
 --|=============================================================
+-- §2b: 首次达到上限刷怪配置
+-- 当首次达到 70 个上限时，给每个玩家额外刷一个怪
+--|=============================================================
+Layer4.play2BonusSpawns = {} -- 记录每个玩家是否已获得 bonus spawn
+Layer4.play2HasBonus = false -- 是否已经触发过 bonus spawn 奖励
+
+function Layer4.bonusSpawnOnCap()
+    -- 防止重复触发
+    if Layer4.play2HasBonus then
+        print("[Layer4] §2b: 已经触发过首次上限奖励，跳过")
+        return
+    end
+    
+    print("[Layer4] §2b: 首次达到上限，触发奖励刷怪...")
+    Layer4.play2HasBonus = true
+    
+    -- 给每个玩家刷一个怪
+    for pid = 4, 11 do
+        local p = Player:new(pid)
+        if p and p:isEnemy() then
+            -- 为该玩家刷一个怪（使用 countAliveUnits 最少的玩家逻辑）
+            local alive = Layer4.countAliveUnits(p)
+            if alive < 10 then -- 如果该玩家还没满
+                -- 临时跳过上限检查，专门刷这个 bonus 怪
+                local originalCanSpawn = Layer4.canSpawnMob
+                Layer4.canSpawnMob = function() return true end -- 临时允许
+                local u = Unit:new(p, Layer4.getRandomMobId(), 0, 0, 270)
+                Layer4.canSpawnMob = originalCanSpawn -- 恢复
+                if u and u._handle then
+                    table.insert(Layer4.play2MobHandles, u._handle)
+                    print(string.format("[Layer4] §2b: 奖励刷怪：玩家%d 获得怪物 %s", pid, Layer4.getRandomMobId()))
+                    -- 记录该玩家已获得 bonus
+                    Layer4.play2BonusSpawns[pid] = true
+                else
+                    print(string.format("[Layer4] §2b: 奖励刷怪失败：玩家%d", pid))
+                end
+            end
+        end
+    end
+end
+
+--|=============================================================
 -- §2c: 玩法 3 BOSS 配置（nx20）
 --|=============================================================
 Layer4.play3Config = {
@@ -446,6 +488,9 @@ function Layer4.start()
     -- 重置刷怪状态
     Layer4.play2MobTimer = nil
     Layer4.play2MobHandles = {}
+    -- 重置首次达到上限的状态
+    Layer4.play2BonusSpawns = {}
+    Layer4.play2HasBonus = false
     print(string.format("[Layer4] 启动 %.1f,%.1f", Layer4.entryPos.x, Layer4.entryPos.y))
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", "关卡 4 已启动", SystemMessage.COLOR_SUCCESS}}, 3.0)
@@ -594,9 +639,11 @@ function Layer4.spawnOneMob()
         end
     end
     
-    -- 每个玩家最多 20 个，总共 7 个玩家 = 140 个上限
-    if totalAlive >= 140 then
-        print(string.format("[Layer4] §2b: 达到上限 %d/140，暂停刷怪", totalAlive))
+    -- 每个玩家最多 10 个，总共 7 个玩家 = 70 个上限
+    if totalAlive >= 70 then
+        print(string.format("[Layer4] §2b: 达到上限 %d/70，暂停刷怪", totalAlive))
+        -- 首次达到上限时，给每个玩家刷一个怪
+        Layer4.bonusSpawnOnCap()
         return
     end
     
@@ -650,12 +697,20 @@ function Layer4.spawnOneMob()
         return
     end
     
+    -- 检查位置高度，大于 1 不创建
+    -- 使用 Terrain.lua 封装的 cdz.DzGetTerrainZ 获取地形高度
+    local height = cdz.DzGetTerrainZ(x, y) or 0
+    if height > 1 then
+        print(string.format("[Layer4] §2b: 位置 %.1f,%.1f 高度 %.1f > 1，跳过创建", x, y, height))
+        return
+    end
+    
     local u = Unit:new(bestPlayer, mobId, x, y, 270)
     if u and u._handle then
         -- 添加到句柄列表，用于死亡监听
         table.insert(Layer4.play2MobHandles, u._handle)
         print(string.format("[Layer4] §2b: 在 %.1f,%.1f 创建怪物 %s 给玩家%d", x, y, mobId, bestPlayer:getId()))
-        print(string.format("[Layer4] §2b: 当前刷怪单位总数：%d / 上限：140", #Layer4.play2MobHandles, 140))
+        print(string.format("[Layer4] §2b: 当前刷怪单位总数：%d / 上限：70", #Layer4.play2MobHandles, 70))
         
         -- 可选：设置单位属性（如 HP、护甲等）
         -- u:setLife(1000)
@@ -698,7 +753,7 @@ function Layer4.onMobDeath(handle)
             totalAlive = totalAlive + Layer4.countAliveUnits(p)
         end
     end
-    if totalAlive < 140 then
+    if totalAlive < 70 then
         -- 延迟 0.5 秒再刷，避免瞬间刷太多
         -- Timer:delayed 不存在，改用 Timer:new + 手动销毁
         local t = Timer:new(0.5, false, function(timer)
