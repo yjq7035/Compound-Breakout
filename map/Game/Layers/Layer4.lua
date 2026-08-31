@@ -912,26 +912,28 @@ function Layer4.destroyPlay2KeyDoor()
     Layer4.play2DoorEvent = nil
 end
 
+local function onKeyPickup(ev)
+    local it = ev.item
+    if not it then return end
+    if cj.GetItemTypeId(it) ~= c2i(Layer4.play2KeyConfig.itemId) then return end
+    local hero = ev.unit
+    if not hero then return end
+    local owner = Player.fromHandle(cj.GetOwningPlayer(hero))
+    local pname = owner and owner:getName() or "未知"
+    if not pname or pname == "" then pname = string.format("玩家%d", owner and owner:getId() or 0) end
+    print(string.format("[Layer4] §2b-KEY: %s 拾取钥匙 %s", pname, Layer4.play2KeyConfig.itemId))
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", string.format("%s 获得了钥匙！前往横墙 2 (-12897,3844) 开门通关！", pname), SystemMessage.COLOR_SUCCESS}}, 5.0)
+    end
+end
+
 function Layer4.ensurePlay2KeyListeners()
     if Layer4.play2KeyPickupEvent then return end
     Layer4.createPlay2KeyDoor()
     local keyId = c2i(Layer4.play2KeyConfig.itemId)
     if not keyId or keyId == 0 then print("[Layer4] §2b-KEY: ao8y 的 c2i 转换失败") return end
-    Layer4.play2KeyPickupEvent = Event:new(nil, EVENT_PLAYER_UNIT_PICKUP_ITEM, function(ev)
-        local it = ev.item or cj.GetManipulatedItem()
-        if not it then return end
-        if cj.GetItemTypeId(it) ~= keyId then return end
-        local hero = ev.unit or cj.GetTriggerUnit()
-        if not hero then return end
-        local owner = Player.fromHandle(cj.GetOwningPlayer(hero))
-        local pname = owner and owner:getName() or "未知"
-        if not pname or pname == "" then pname = string.format("玩家%d", owner and owner:getId() or 0) end
-        print(string.format("[Layer4] §2b-KEY: %s 拾取钥匙 %s", pname, Layer4.play2KeyConfig.itemId))
-        if SystemMessage and SystemMessage.send then
-            SystemMessage.send({{"STR", string.format("%s 获得了钥匙！前往横墙2 (-12897,3844) 开门通关！", pname), SystemMessage.COLOR_SUCCESS}}, 5.0)
-        end
-    end)
-    print("[Layer4] §2b-KEY: 钥匙拾取监听已注册 ao8y 横墙2为通关门")
+    Layer4.play2KeyPickupEvent = Event:new(nil, EVENT_PLAYER_UNIT_PICKUP_ITEM, onKeyPickup)
+    print("[Layer4] §2b-KEY: 钥匙拾取监听已注册 ao8y 横墙 2 为通关门")
 end
 
 function Layer4.destroyPlay2KeyListeners()
