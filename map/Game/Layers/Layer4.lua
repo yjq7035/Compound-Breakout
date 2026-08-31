@@ -90,7 +90,7 @@ Layer4.play2Triggered    = false
 Layer4.play2WallHandle   = nil
 Layer4.play2EnteredPids  = {} -- pid -> true
 Layer4.play2MobTimer     = nil
-Layer4.play2MobHandles   = {} -- 单位 handle 列表，用于死亡监听
+Layer4.play2MobHandles   = {} -- 单位 handle 列表
 
 --|=============================================================
 -- §2b-KEY: 玩法 2 钥匙玩法（ao8y 通行旗子）
@@ -558,8 +558,7 @@ function Layer4.shutdown()
     Layer4.play1Triggered = false
     -- 清理钥匙玩法监听/门区域
     Layer4.destroyPlay2KeyListeners()
-    -- 死亡监听不随关卡销毁（复用时 ensure 会重建），但此处清理 mobDeathListener 便于热重载
-    if Layer4.mobDeathListener then pcall(function() Layer4.mobDeathListener:destroy() end) Layer4.mobDeathListener=nil end
+    -- 死亡监听不随关卡销毁（复用时 ensure 会重建），但此处清理 deathListener 便于热重载
     if Layer4.deathListener then pcall(function() Layer4.deathListener:destroy() end) Layer4.deathListener=nil end
 end
 
@@ -601,95 +600,21 @@ function Layer4.getRandomMobId()
     return ids[idx]
 end
 
--- 检查周围 800 码内是否有敌对单位
--- 使用 Group:enumRange 高效枚举 800 码内单位，再过滤敌方（玩家 4+）
-function Layer4.canSpawnMob()
-    local spawnPos = {}
-    -- 选择随机刷怪区
-    local rects = Layer4.mobSpawnRectsA
-    local rect = rects[math.random(1, #rects)]
-    
-    -- 计算随机位置
+-- 生成一个随机刷怪位置（A 或 B 区域）
+function Layer4.generateRandomSpawnPos()
+    local allRects = table.concat({Layer4.mobSpawnRectsA, Layer4.mobSpawnRectsB})
+    local rect = allRects[math.random(1, #allRects)]
     local minx = rect.cx - rect.width / 2
     local miny = rect.cy - rect.height / 2
     local maxx = rect.cx + rect.width / 2
     local maxy = rect.cy + rect.height / 2
     local x = minx + math.random() * (maxx - minx)
     local y = miny + math.random() * (maxy - miny)
-    
-    spawnPos.x = x
-    spawnPos.y = y
-    
-    local enemyCount = 0
-    
-    -- 使用 Group 枚举 800 码内所有单位（底层遍历 _unitPool，范围过滤）
-    local g = Group:new()
-    g:enumRange(x, y, 800, nil)
-    
-    g:forEach(function(handle)
-        local u = Unit.fromHandle(handle)
-        if not u then return end
-        local ux, uy = u:getX(), u:getY()
-        if ux and uy then
-            local dx = ux - spawnPos.x
-            local dy = uy - spawnPos.y
-            local dist = math.sqrt(dx * dx + dy * dy)
-            if dist < 800 then
-                local owner = u:getOwner()
-                if owner and owner:getId() >= 4 then
-                    enemyCount = enemyCount + 1
-                    if enemyCount <= 3 then
-                        print(string.format("[Layer4] §2b: 发现第%d个敌对单位 %s 在 %.1f,%.1f，距离 %.1f 码", enemyCount, u:getName(), ux, uy, dist))
-                    end
-                end
-            end
-        end
-    end)
-    
-    if enemyCount > 0 then
-        return false
-    end
-    
-    return true
+    return { x = x, y = y, rect = rect }
 end
 
 -- 在刷怪区 A 或 B 的随机位置生成一个单位
 function Layer4.spawnOneMob()
-    -- 统计所有敌方玩家（4-11）的存活单位数
-    local totalAlive = 0
-    for pid = 4, 11 do
-        local p = Player:new(pid)
-        if p and p:isEnemy() then
-            totalAlive = totalAlive + Layer4.countAliveUnits(p)
-        end
-    end
-    
-    -- 每个玩家最多 10 个，总共 7 个玩家 = 70 个上限
-    if totalAlive >= 70 then
-        print(string.format("[Layer4] §2b: 达到上限 %d/70，暂停刷怪", totalAlive))
-        -- 首次达到上限时，给每个玩家刷一个怪
-        Layer4.bonusSpawnOnCap()
-        return
-    end
-    
-    -- 检查周围 800 码内是否有敌对单位
-    if not Layer4.canSpawnMob() then
-        print(string.format("[Layer4] §2b: 周围 800 码内有敌对单位，跳过刷怪"))
-        return
-    end
-    
-    -- 选择随机刷怪区
-    local rects = Layer4.mobSpawnRectsA
-    local rect = rects[math.random(1, #rects)]
-    
-    -- 计算随机位置
-    local minx = rect.cx - rect.width / 2
-    local miny = rect.cy - rect.height / 2
-    local maxx = rect.cx + rect.width / 2
-    local maxy = rect.cy + rect.height / 2
-    local x = minx + math.random() * (maxx - minx)
-    local y = miny + math.random() * (maxy - miny)
-    
     -- 获取敌方玩家列表（4-11）
     local enemyPlayers = {}
     for pid = 4, 11 do
@@ -699,7 +624,7 @@ function Layer4.spawnOneMob()
         end
     end
     
-    -- 找到存活数最少的敌方玩家
+    -- 找到存活数最少的敌方玩家作为目标
     local bestPlayer = nil
     local minAlive = 999999
     for _, p in ipairs(enemyPlayers) do
@@ -715,7 +640,60 @@ function Layer4.spawnOneMob()
         return
     end
     
-    -- 创建单位
+    local totalAlive = 0
+    local maxAttempts = 20
+    for pid = 4, 11 do
+        local p = Player:new(pid)
+        totalAlive = totalAlive + Layer4.countAliveUnits(p)
+    end
+    
+    -- 每个玩家最多 10 个，总共 7 个玩家 = 70 个上限
+    if totalAlive >= 70 then
+        print(string.format("[Layer4] §2b: 达到上限 %d/70，暂停刷怪", totalAlive))
+        -- 首次达到上限时，给每个玩家刷一个怪
+        Layer4.bonusSpawnOnCap()
+        return
+    end
+    
+    -- 在目标玩家周围寻找安全位置
+    for attempt = 1, maxAttempts do
+        local spawnPos = Layer4.generateRandomSpawnPos()
+        x = spawnPos.x
+        y = spawnPos.y
+        local enemyCount = 0
+        
+        -- 检查周围 800 码内是否有与目标玩家敌对的单位
+        Group:new():enumRange(x, y, 800, function(handle)
+            local u = Unit.fromHandle(handle)
+            if not u then return end
+            local ux, uy = u:getX(), u:getY()
+            if ux and uy then
+                local dx = ux - x
+                local dy = uy - y
+                local dist = math.sqrt(dx * dx + dy * dy)
+                if dist < 800 then
+                    local owner = u:getOwner()
+                    -- 判断单位所属玩家是否与目标玩家敌对
+                    if owner and owner:isEnemy(bestPlayer) then
+                        enemyCount = enemyCount + 1
+                    end
+                end
+            end
+        end)
+        
+        if enemyCount == 0 then
+            -- 找到安全位置，break 跳出循环
+            break
+        end
+        
+        -- 尝试次数过多，打印警告
+        if attempt == maxAttempts then
+            print(string.format("[Layer4] §2b: 尝试 %d 次后仍未找到安全的刷怪位置，跳过刷怪", maxAttempts))
+            return
+        end
+    end
+    
+    -- 获取可用的怪物 ID
     local mobId = Layer4.getRandomMobId()
     if not mobId then
         print("[Layer4] §2b: 没有可用的怪物 ID")
@@ -723,13 +701,13 @@ function Layer4.spawnOneMob()
     end
     
     -- 检查位置高度，大于 1 不创建
-    -- 使用 Terrain.lua 封装的 cdz.DzGetTerrainZ 获取地形高度
     local height = cdz.DzGetTerrainZ(x, y) or 0
     if height > 1 then
         print(string.format("[Layer4] §2b: 位置 %.1f,%.1f 高度 %.1f > 1，跳过创建", x, y, height))
         return
     end
     
+    -- 创建单位
     local u = Unit:new(bestPlayer, mobId, x, y, 270)
     if u and u._handle then
         -- 添加到句柄列表，用于死亡监听
@@ -782,9 +760,9 @@ function Layer4.onMobDeath(handle)
     local totalAlive = 0
     for pid = 4, 11 do
         local p = Player:new(pid)
-        if p and p:isEnemy() then
+        -- if p and p:isEnemy() then
             totalAlive = totalAlive + Layer4.countAliveUnits(p)
-        end
+        -- end
     end
     if totalAlive < 70 then
         -- 延迟 0.5 秒再刷，避免瞬间刷太多
@@ -798,42 +776,7 @@ function Layer4.onMobDeath(handle)
 end
 
 -- 注册死亡监听
-function Layer4.ensureMobDeathListener()
-    if Layer4.mobDeathListener then return end
-    print("[Layer4] §2b: 注册刷怪单位死亡监听...")
-    Layer4.mobDeathListener = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
-        if Layer4.finished then return end
-        local dyingHandle = ev.unit
-        if not dyingHandle then return end
-        -- 检查是否是刷怪单位（关卡4创建的单位）
-        for _, h in ipairs(Layer4.play2MobHandles) do
-            if h == dyingHandle then
-                Layer4.onMobDeath(h)
-                return
-            end
-        end
-        -- 兼容：未在列表但属于玩法2创建的敌方单位也尝试掉落（兜底：玩家4-11刷的怪可能句柄已失效但类型在列表内）
-        -- 仅对关卡4刷怪计时器存在期间生效
-        if Layer4.play2Triggered then
-            local okOwner, owner = pcall(function() return cj.GetOwningPlayer(dyingHandle) end)
-            if okOwner and owner then
-                local pid = cj.GetPlayerId(owner)
-                if pid >= 4 and pid <= 11 then
-                    local tid = cj.GetUnitTypeId(dyingHandle)
-                    local tstr = i2c(tid)
-                    for _, mid in ipairs(Layer4.registeredMobIds) do
-                        if mid == tstr then
-                            local okX, x = pcall(cj.GetUnitX, dyingHandle)
-                            local okY, y = pcall(cj.GetUnitY, dyingHandle)
-                            if okX and okY and x and y then Layer4.tryDropKeyAt(x, y) end
-                            break
-                        end
-                    end
-                end
-            end
-        end
-    end)
-end
+
 
 --|=============================================================
 -- §2b-KEY: 钥匙掉落 / 持有检测 / 开门通关
