@@ -2364,16 +2364,16 @@ math.atan = cj.Atan2
 local _gri = cj.GetRandomInt
 local _grr = cj.GetRandomReal
 --- 随机数生成器 | 参数: a(integer), b(integer) | 返回: integer
+--- @param a integer
+--- @param b integer
+--- @return integer
 math.random = function(a, b)
     _G._RNG = (_G._RNG or 0) + 1  -- [PROBE] 临时诊断：RNG 流消耗计数（跨机对照，定位随机流首个分叉）
     if a == nil then
-        -- print("math.random() → [0,1)" .. _grr(0, 1))
-        return _grr(0, 1)          -- math.random() → [0,1)
+        return _grr(0, 100)          -- math.random() → [0,1000)
     elseif b == nil then
-        -- print("math.random(n) → 1..n" .. _gri(1, a))
         return _gri(1, a)          -- math.random(n) → 1..n
     else
-        -- print("math.random(m,n) → m..n" .. _gri(a, b))
         return _gri(a, b)          -- math.random(m,n) → m..n
     end
 end

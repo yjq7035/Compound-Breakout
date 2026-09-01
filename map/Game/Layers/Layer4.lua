@@ -40,6 +40,74 @@ Layer4.finishAreaC = {
 }
 
 --|=============================================================
+-- §1d: play3 新区域定义（左下角：-15497.8,565.2 右上角：-12546.1,3765.5）
+--|=============================================================
+Layer4.play3NewRegion = {
+    minx = -15497.8, miny = 565.2, maxx = -12546.1, maxy = 3765.5,
+    name = "play3 新区域（左下角：-15497.8,565.2 右上角：-12546.1,3765.5）",
+}
+
+--|=============================================================
+-- §1d-DEATH: play3 新区域死亡事件监听
+-- 监听区域内可破坏物死亡事件，输出死亡信息
+--|=============================================================
+function Layer4.initPlay3NewRegionDeathListener()
+    if Layer4.play3NewRegionDeathEvent then return end
+    print("[Layer4] §1d-DEATH: 注册 play3 新区域死亡监听...")
+    
+    Layer4.play3NewRegionDeathEvent = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
+        if Layer4.finished then return end
+        
+        local handle = ev.unit
+        if not handle then return end
+        
+        -- 检查死亡单位是否属于可破坏物类型
+        local typeId = cj.GetDestructableTypeId(handle)
+        if typeId == 0 then return end -- 非可破坏物
+        
+        -- 检查是否在 play3 新区域内
+        local dx, dy = cj.GetUnitX(handle), cj.GetUnitY(handle)
+        if not dx or not dy then return end
+        
+        local x, y = tonumber(dx), tonumber(dy)
+        local minX, minY, maxX, maxY = Layer4.play3NewRegion.minx, Layer4.play3NewRegion.miny, 
+                                      Layer4.play3NewRegion.maxx, Layer4.play3NewRegion.maxy
+        
+        if x >= minX and x <= maxX and y >= minY and y <= maxY then
+            -- 获取可破坏物 ID
+            local destructableId = cj.GetDestructableId(handle)
+            local destructableName = cj.GetDestructableTypeString(destructableId) or cj.GetDestructableTypeIdString(handle)
+            
+            print(string.format("[Layer4] §1d-DEATH: play3 新区域内可破坏物死亡 - ID: %s, Name: %s, Type: %d, Pos: %.1f,%.1f", 
+                              destructableId, destructableName or "未知", typeId, x, y))
+            
+            if SystemMessage and SystemMessage.send then
+                SystemMessage.send({{"STR", string.format("play3 新区域：%s 死亡！ID:%s", destructableName or "可破坏物", destructableId), SystemMessage.COLOR_WARN}}, 3.0)
+            else
+                Player.sendAll(string.format("play3 新区域：%s 死亡！ID:%s", destructableName or "可破坏物", destructableId))
+            end
+        end
+    end)
+    
+    Layer4.play3NewRegionRect = Rect:new(Layer4.play3NewRegion.minx, Layer4.play3NewRegion.miny, 
+                                         Layer4.play3NewRegion.maxx, Layer4.play3NewRegion.maxy)
+    print(string.format("[Layer4] §1d-DEATH: play3 新区域监听已注册 (min: %.1f,%.1f max: %.1f,%.1f)", 
+                      Layer4.play3NewRegion.minx, Layer4.play3NewRegion.miny, 
+                      Layer4.play3NewRegion.maxx, Layer4.play3NewRegion.maxy))
+end
+
+function Layer4.destroyPlay3NewRegionDeathListener()
+    if Layer4.play3NewRegionDeathEvent then
+        pcall(function() Layer4.play3NewRegionDeathEvent:destroy() end)
+        Layer4.play3NewRegionDeathEvent = nil
+    end
+    if Layer4.play3NewRegionRect then
+        pcall(function() Layer4.play3NewRegionRect:destroy() end)
+        Layer4.play3NewRegionRect = nil
+    end
+end
+
+--|=============================================================
 -- §1b: 墙体定义与运行时（横墙 B000, 竖墙 DL84）
 --|=============================================================
 Layer4.WALL_H = "B000"
@@ -62,6 +130,8 @@ Layer4.started     = false
 Layer4.finished    = false
 Layer4.rectListeners = nil -- "A:A" / "B:B" -> Event
 Layer4.deathListener = nil
+Layer4.play2NewRegionRect = nil  -- play2 新区域 Rect 对象
+Layer4.play2NewRegionDeathEvent = nil  -- play2 新区域死亡监听
 
 --|=============================================================
 -- §2a: 玩法 1 配置
@@ -528,6 +598,9 @@ function Layer4.start()
     Layer4.ensureDeathListener()
     Layer4.ensureMobDeathListener()
     Layer4.ensurePlay2KeyListeners()
+    -- 创建 play2 新区域并注册死亡事件
+    Layer4.initPlay3NewRegion()
+    Layer4.initPlay3NewRegionDeathListener()
 end
 
 function Layer4.shutdown()
@@ -564,6 +637,8 @@ function Layer4.shutdown()
     Layer4.play1Triggered = false
     -- 清理钥匙玩法监听/门区域
     Layer4.destroyPlay2KeyListeners()
+    -- 清理 play3 新区域死亡监听
+    Layer4.destroyPlay3NewRegionDeathListener()
     -- 死亡监听不随关卡销毁（复用时 ensure 会重建），但此处清理 deathListener 便于热重载
     if Layer4.deathListener then pcall(function() Layer4.deathListener:destroy() end) Layer4.deathListener=nil end
     if Layer4.mobDeathListener then pcall(function() Layer4.mobDeathListener:destroy() end) Layer4.mobDeathListener=nil end
