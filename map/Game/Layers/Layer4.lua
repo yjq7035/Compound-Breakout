@@ -99,8 +99,8 @@ Layer4.play2MobHandles   = {} -- 单位 handle 列表
 --|=============================================================
 Layer4.play2KeyConfig = {
     itemId      = "ao8y",
-    dropChance  = 0.08,  -- 单只死亡掉落概率 8%，可在测试时临时调高
-    doorWallIndex = 2,   -- 横墙2 为通关门
+    dropChance  = 0.01,  -- 单只死亡掉落概率 1%，可在测试时临时调高
+    doorWallIndex = 2,   -- 横墙 2 为通关门
     doorSize    = { w = 700, h = 700 },
     finished    = false,
 }
@@ -447,7 +447,13 @@ function Layer4.bonusSpawnOnCap()
                 -- 临时跳过上限检查，专门刷这个 bonus 怪
                 local originalCanSpawn = Layer4.canSpawnMob
                 Layer4.canSpawnMob = function() return true end -- 临时允许
-                local u = Unit:new(p, Layer4.getRandomMobId(), 0, 0, 270)
+                local spawnPos = Layer4.generateRandomSpawnPos()
+                if not spawnPos then
+                    print(string.format("[Layer4] §2b: 奖励刷怪位置生成失败，跳过"))
+                    Layer4.canSpawnMob = originalCanSpawn
+                    return
+                end
+                local u = Unit:new(p, Layer4.getRandomMobId(), spawnPos.x, spawnPos.y, 270)
                 Layer4.canSpawnMob = originalCanSpawn -- 恢复
                 if u and u._handle then
                     table.insert(Layer4.play2MobHandles, u._handle)
@@ -560,6 +566,7 @@ function Layer4.shutdown()
     Layer4.destroyPlay2KeyListeners()
     -- 死亡监听不随关卡销毁（复用时 ensure 会重建），但此处清理 deathListener 便于热重载
     if Layer4.deathListener then pcall(function() Layer4.deathListener:destroy() end) Layer4.deathListener=nil end
+    if Layer4.mobDeathListener then pcall(function() Layer4.mobDeathListener:destroy() end) Layer4.mobDeathListener=nil end
 end
 
 --|=============================================================
@@ -586,7 +593,7 @@ end
 -- 停止刷怪计时器
 function Layer4.stopMobSpawnerTimer()
     if Layer4.play2MobTimer then
-        Layer4.play2MobTimer:stop()
+        pcall(function() Layer4.play2MobTimer:stop() end)
         Layer4.play2MobTimer = nil
         print("[Layer4] 刷怪计时器已停止")
     end
@@ -602,7 +609,10 @@ end
 
 -- 生成一个随机刷怪位置（A 或 B 区域）
 function Layer4.generateRandomSpawnPos()
-    local allRects = table.concat({Layer4.mobSpawnRectsA, Layer4.mobSpawnRectsB})
+    local allRects = {}
+    for i = 1, #Layer4.mobSpawnRectsA do allRects[#allRects + 1] = Layer4.mobSpawnRectsA[i] end
+    for i = 1, #Layer4.mobSpawnRectsB do allRects[#allRects + 1] = Layer4.mobSpawnRectsB[i] end
+    if #allRects == 0 then return nil end
     local rect = allRects[math.random(1, #allRects)]
     local minx = rect.cx - rect.width / 2
     local miny = rect.cy - rect.height / 2
@@ -776,6 +786,22 @@ function Layer4.onMobDeath(handle)
 end
 
 -- 注册死亡监听
+function Layer4.ensureMobDeathListener()
+    if Layer4.mobDeathListener then return end
+    print("[Layer4] §2b: 注册刷怪死亡监听...")
+    Layer4.mobDeathListener = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
+        if Layer4.finished then return end
+        local handle = ev.unit
+        if not handle then return end
+        -- 只处理本玩法刷出的怪（玩家英雄 / 各 BOSS 死亡交给各自的监听处理）
+        local isMob = false
+        for _, h in ipairs(Layer4.play2MobHandles) do
+            if h == handle then isMob = true break end
+        end
+        if not isMob then return end
+        Layer4.onMobDeath(handle)
+    end)
+end
 
 
 --|=============================================================
@@ -795,10 +821,12 @@ function Layer4.hasUnitKey(uHandle)
 end
 
 function Layer4.tryDropKeyAt(x, y)
+    -- 注：当前代码只有钥匙掉落（1% 概率），无旗子掉落逻辑
+    -- 如需添加旗子掉落，请在 tryDropKeyAt 中额外添加 tryDropFlagAt 函数调用
     if Layer4.play2KeyConfig.finished then return end
     if not x or not y then return end
-    local chance = Layer4.play2KeyConfig.dropChance or 0.08
-    if math.random() >= chance then return end
+    local chance = Layer4.play2KeyConfig.dropChance or 0.01 -- 1% 掉落概率
+    if cj.I2R(math.random(1, 100)) / 100 >= chance then return end
     local itemIdStr = Layer4.play2KeyConfig.itemId
     local ok, it = pcall(function() return Item:new(itemIdStr, x, y) end)
     if not ok or not it or not it._handle then
@@ -872,8 +900,18 @@ function Layer4.onPlay2DoorOpen(heroHandle, itemHandle)
         Player.sendAll("玩法2通关！横墙2已开启")
     end
     Layer4.destroyPlay2KeyDoor()
-    -- 通关后可选停止刷怪（保留现状以免影响其他玩法）
-    print("[Layer4] §2b-KEY: 玩法2通关完成 (钥匙开门)")
+    -- 玩法 2 通关：停止刷怪计时器、清理剩余单位（刷怪单位属于玩法 2 内容）
+    Layer4.stopMobSpawnerTimer()
+    if #Layer4.play2MobHandles > 0 then
+        print(string.format("[Layer4] §2b: 玩法 2 通关，销毁 %d 个剩余刷怪单位", #Layer4.play2MobHandles))
+        for _, h in ipairs(Layer4.play2MobHandles) do
+            if h then pcall(function() Unit.fromHandle(h):destroy() end) end
+        end
+        Layer4.play2MobHandles = {}
+    end
+    -- 清理刷怪区监听
+    destroyMobSpawnRectListeners()
+    print("[Layer4] §2b-KEY: 玩法 2 通关完成（已清理刷怪内容）")
 end
 
 function Layer4.createPlay2KeyDoor()
