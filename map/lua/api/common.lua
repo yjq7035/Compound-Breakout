@@ -2147,7 +2147,7 @@ cj.TriggerEvaluate = JassCommon["TriggerEvaluate"]
 cj.TriggerExecute = JassCommon["TriggerExecute"]
 --- 等待触发器执行完毕 | 参数: whichTrigger(trigger)
 cj.TriggerExecuteWait = JassCommon["TriggerExecuteWait"]
---- 可破坏物死亡 | 参数: whichTrigger(trigger), whichWidget(widget) | 返回: event
+--- 可破坏物死亡事件 | 参数: whichTrigger(trigger), whichWidget(widget) | 返回: event
 cj.TriggerRegisterDeathEvent = JassCommon["TriggerRegisterDeathEvent"]
 --- 对话框按钮被点击 [R] | 参数: whichTrigger(trigger), whichButton(button) | 返回: event
 cj.TriggerRegisterDialogButtonEvent = JassCommon["TriggerRegisterDialogButtonEvent"]

@@ -324,4 +324,101 @@ function Destroyable.clearAll()
     end
 end
 
+------------------------------------------------------------------
+-- 死亡事件
+------------------------------------------------------------------
+
+--- 为可破坏物注册死亡事件
+--- @param self Destroyable 可破坏物对象
+--- @param trig trigger 触发器对象
+--- @return event 事件对象
+--- @usage 
+function Destroyable:registerDeathEvent(trig)
+    if not isValid(self) or trig == nil then return nil end
+    return cj.TriggerRegisterDeathEvent(trig, self._handle)
+end
+
+--- 取消死亡事件注册
+--- @param self Destroyable 可破坏物对象
+--- @param trig trigger 触发器对象
+--- @return boolean 是否成功取消
+function Destroyable:unregisterDeathEvent(trig)
+    if not isValid(self) or trig == nil then return false end
+    -- 使用空 widget 取消注册
+    cj.TriggerRegisterDeathEvent(trig, nil)
+    return true
+end
+
+--- 为多个可破坏物批量注册死亡事件
+--- @param self Destroyable 可破坏物对象
+--- @param trigs table 触发器表 { [widget1] = trig1, [widget2] = trig2, ... }
+--- @return table 事件表 { [widget1] = event1, [widget2] = event2, ... }
+--- @usage 
+function Destroyable.batchRegisterDeathEvent(destructables, trigs)
+    if #destructables ~= #trigs then return {} end
+    local events = {}
+    for i, destructable in ipairs(destructables) do
+        if isValid(destructable) and trigs[i] then
+            events[trigs[i]] = destructable:registerDeathEvent(trigs[i])
+        end
+    end
+    return events
+end
+
+--- 批量取消死亡事件注册
+--- @param self Destroyable 可破坏物对象
+--- @param trigs table 触发器表 { [widget1] = trig1, [widget2] = trig2, ... }
+--- @return boolean 是否全部取消成功
+function Destroyable.batchUnregisterDeathEvent(destructables, trigs)
+    local success = true
+    for i, destructable in ipairs(destructables) do
+        if trigs[i] then
+            local ok = destructable:unregisterDeathEvent(trigs[i])
+            if not ok then success = false end
+        end
+    end
+    return success
+end
+
+------------------------------------------------------------------
+-- 区域枚举
+------------------------------------------------------------------
+
+--- 枚举矩形区域内的所有可破坏物
+--- @param r table|rect 矩形区域，可以是：
+--- @param filter function|nil 过滤函数，接收 destructable 对象，返回 true 保留，false 跳过
+--- @return table 可破坏物列表 {Destroyable, Destroyable, ...}
+function Destroyable.EnumDestructablesInRect(r, filter)
+    if type(r) == "table" then
+        local minx = r.minx or r[1]
+        local maxx = r.maxx or r[3]
+        local miny = r.miny or r[2]
+        local maxy = r.maxy or r[4]
+        r = cj.CreateRect(minx, miny, maxx, maxy)
+    end
+
+    if type(r) ~= "rect" then return {} end
+
+    local result = {}
+    cj.EnumDestructablesInRect(r, nil, function(handle)
+        local obj = Destroyable.fromHandle(handle)
+        if obj and isValid(obj) then
+            if not filter or filter(obj) then
+                table.insert(result, obj)
+            end
+        end
+        return true  -- 继续枚举
+    end)
+
+    return result
+end
+
+--- 枚举矩形区域内的可破坏物数量
+--- @param r table|rect 矩形区域
+--- @param filter function|nil 过滤函数
+--- @return integer 数量
+function Destroyable.EnumDestructablesInRectCount(r, filter)
+    return #Destroyable.EnumDestructablesInRect(r, filter)
+end
+
 return Destroyable
