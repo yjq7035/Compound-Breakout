@@ -5,9 +5,10 @@
 -- 职责：
 --   1. 存放第四关卡坐标（入口/复活、传送）
 --   2. §1b: 创建墙体（横墙 B000 / 竖墙 DL84，index=4/6 默认不创建）
---   3. §1c: 矩形区域定义（A/B 刷怪区，C 通关区）
+--   3. §1b: 创建墙体（横墙 B000 / 竖墙 DL84，index=4/6 默认不创建）
 --   4. §2a: 玩法 1 魔法强化怪物 n89f + 击杀销毁横墙 1
 --   5. §2b: 玩法 2 所有用户玩家英雄进入 A 或 B 后创建竖墙 1
+--   6. §2d: 玩法 4 BOSS 创建和销毁
 --|=============================================================
 
 -- ============================================================
@@ -18,6 +19,10 @@
 Layer4 = {}
 Layer4.__index = Layer4
 
+-- 初始化空表（防止 nil 错误）
+Layer4.mobSpawnRectsA = Layer3.mobSpawnRects or {}
+Layer4.mobSpawnRectsB = {} or {}
+
 --|=============================================================
 -- §1 坐标
 --|=============================================================
@@ -27,88 +32,7 @@ Layer4.teleportPos  = { x = -8518.2, y = 747.9, name = "关卡 4 传送点" }
 Layer4.potionShopPos= { x = -8518.2, y = 747.9, name = "关卡 4 药剂商店（占位）" }
 
 --|=============================================================
--- §1c: 矩形区域定义
---|=============================================================
-Layer4.mobSpawnRectsA = {
-    { id = "A", cx = -13020.15, cy = 5888.8, width = 4959.9, height = 3636.2, name = "矩形 A 刷怪区域" },
-}
-Layer4.mobSpawnRectsB = {
-    { id = "B", cx = -9302.4, cy = 6552.7, width = 2223.0, height = 2262.4, name = "矩形 B 刷怪区域" },
-}
-Layer4.finishAreaC = {
-    { id = "C", minx = -10234.0, miny = 4894.7, maxx = -9815.9, maxy = 5127.0, name = "矩形 C 通关区域" },
-}
-
---|=============================================================
--- §1d: play3 新区域定义（左下角：-15497.8,565.2 右上角：-12546.1,3765.5）
---|=============================================================
-Layer4.play3NewRegion = {
-    minx = -15497.8, miny = 565.2, maxx = -12546.1, maxy = 3765.5,
-    name = "play3 新区域（左下角：-15497.8,565.2 右上角：-12546.1,3765.5）",
-}
-
---|=============================================================
--- §1d-DEATH: play3 新区域死亡事件监听
--- 监听区域内可破坏物死亡事件，输出死亡信息
---|=============================================================
-function Layer4.initPlay3NewRegionDeathListener()
-    if Layer4.play3NewRegionDeathEvent then return end
-    print("[Layer4] §1d-DEATH: 注册 play3 新区域死亡监听...")
-    
-    Layer4.play3NewRegionDeathEvent = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
-        if Layer4.finished then return end
-        
-        local handle = ev.unit
-        if not handle then return end
-        
-        -- 检查死亡单位是否属于可破坏物类型
-        local typeId = cj.GetDestructableTypeId(handle)
-        if typeId == 0 then return end -- 非可破坏物
-        
-        -- 检查是否在 play3 新区域内
-        local dx, dy = cj.GetUnitX(handle), cj.GetUnitY(handle)
-        if not dx or not dy then return end
-        
-        local x, y = tonumber(dx), tonumber(dy)
-        local minX, minY, maxX, maxY = Layer4.play3NewRegion.minx, Layer4.play3NewRegion.miny, 
-                                      Layer4.play3NewRegion.maxx, Layer4.play3NewRegion.maxy
-        
-        if x >= minX and x <= maxX and y >= minY and y <= maxY then
-            -- 获取可破坏物 ID
-            local destructableId = cj.GetDestructableId(handle)
-            local destructableName = cj.GetDestructableTypeString(destructableId) or cj.GetDestructableTypeIdString(handle)
-            
-            print(string.format("[Layer4] §1d-DEATH: play3 新区域内可破坏物死亡 - ID: %s, Name: %s, Type: %d, Pos: %.1f,%.1f", 
-                              destructableId, destructableName or "未知", typeId, x, y))
-            
-            if SystemMessage and SystemMessage.send then
-                SystemMessage.send({{"STR", string.format("play3 新区域：%s 死亡！ID:%s", destructableName or "可破坏物", destructableId), SystemMessage.COLOR_WARN}}, 3.0)
-            else
-                Player.sendAll(string.format("play3 新区域：%s 死亡！ID:%s", destructableName or "可破坏物", destructableId))
-            end
-        end
-    end)
-    
-    Layer4.play3NewRegionRect = Rect:new(Layer4.play3NewRegion.minx, Layer4.play3NewRegion.miny, 
-                                         Layer4.play3NewRegion.maxx, Layer4.play3NewRegion.maxy)
-    print(string.format("[Layer4] §1d-DEATH: play3 新区域监听已注册 (min: %.1f,%.1f max: %.1f,%.1f)", 
-                      Layer4.play3NewRegion.minx, Layer4.play3NewRegion.miny, 
-                      Layer4.play3NewRegion.maxx, Layer4.play3NewRegion.maxy))
-end
-
-function Layer4.destroyPlay3NewRegionDeathListener()
-    if Layer4.play3NewRegionDeathEvent then
-        pcall(function() Layer4.play3NewRegionDeathEvent:destroy() end)
-        Layer4.play3NewRegionDeathEvent = nil
-    end
-    if Layer4.play3NewRegionRect then
-        pcall(function() Layer4.play3NewRegionRect:destroy() end)
-        Layer4.play3NewRegionRect = nil
-    end
-end
-
---|=============================================================
--- §1b: 墙体定义与运行时（横墙 B000, 竖墙 DL84）
+--[§1c: 矩形区域定义]
 --|=============================================================
 Layer4.WALL_H = "B000"
 Layer4.WALL_V = "DL84"
@@ -399,31 +323,13 @@ function Layer4.destroyPlay1Boss()
 end
 
 --|=============================================================
--- §2c: 玩法 3 BOSS 创建和销毁
+--[§2c: 玩法 3 已分离至 Layer4Play3.lua]
+-- 用法：require("Layers.Layer4Play3")
 --|=============================================================
-function Layer4.createPlay3Boss()
-    if Layer4.play3Unit then print("[Layer4] §2c: 玩法 3 BOSS 已存在") return end
-
-    local p = getEnemyPlayer()
-    if not p then print("[Layer4] §2c: Player 4 nil") return end
-    local u = Unit:new(p, Layer4.play3Config.unitId, Layer4.play3Config.pos.x, Layer4.play3Config.pos.y, Layer4.play3Config.facing)
-    if not u or not u._handle then return end
-
-    u.state.resMag = u:getState(UNIT_STATE_DEFEND_WHITE)
-    u.state.defendWhite = u:getState(UNIT_STATE_DEFEND_WHITE)
-
-    Layer4.play3Unit = u
-end
-
-function Layer4.destroyPlay3Boss()
-    if not Layer4.play3Unit then return end
-    pcall(function() Layer4.play3Unit:destroy() end)
-    print("[Layer4] §2c: 玩法 3 BOSS 已销毁")
-    Layer4.play3Unit = nil
-end
 
 --|=============================================================
--- §2d: 玩法 4 BOSS 创建和销毁
+--[§2d: 玩法 4 已分离至 Layer4Play4.lua]
+-- 用法：require("Layers.Layer4Play4")
 --|=============================================================
 function Layer4.createPlay4Boss()
     if Layer4.play4Unit then print("[Layer4] §2d: 玩法 4 BOSS 已存在") return end
@@ -462,7 +368,11 @@ function Layer4.ensureDeathListener()
         if Layer4.play1Triggered then print("[Layer4] 已触发过跳过") return end
         Layer4.play1Triggered = true
         local h = Layer4.wallMap[1]
-        if not h then print("[Layer4] 横墙 1 handle 缺失") return end
+        if not h then 
+            print("[Layer4] 横墙 1 handle 缺失，但不销毁监听器以便重试")
+            -- 不销毁监听器，保持存活以便后续可能重新创建横墙
+            return 
+        end
         local wallCfg = Layer4.walls[1]
         print(string.format("[Layer4] 销毁横墙 1 at %.1f,%.1f", wallCfg.x, wallCfg.y))
         pcall(function() cj.RemoveDestructable(h) end)
@@ -474,14 +384,14 @@ function Layer4.ensureDeathListener()
         else
             Player.sendAll("玩法 1 通关！横墙 1 已摧毁")
         end
-        Layer4.deathListener:destroy()
-        Layer4.deathListener = nil
+        -- 不销毁监听器，保持存活（已在函数开头检查已存在则返回）
+        -- 如果需要在热重载时清理，调用 Layer4.destroyDeathListeners()
     end)
 end
 
 --|=============================================================
--- §2 怪物 ID 注册（用户提供的怪物列表）
--- 注：nPo0 和 nx20 已分别作为玩法 4 和玩法 3 的 BOSS 单独注册
+--[§2 怪物 ID 注册（用户提供的怪物列表）]
+-- 注：nPo0 已作为玩法 4 的 BOSS 单独注册
 --|=============================================================
 Layer4.registeredMobIds = {
     "n8st", "ncE7", "n8b9", "n113", "n3pi", "nv16", "nn7s", "nlok", "n0m1", "ny5m",
@@ -539,21 +449,7 @@ function Layer4.bonusSpawnOnCap()
 end
 
 --|=============================================================
--- §2c: 玩法 3 BOSS 配置（nx20）
---|=============================================================
-Layer4.play3Config = {
-    pos     = { x = -8524.9, y = 3200.0 },
-    unitId  = "nx20",
-    facing  = 270,
-    armor   = 50,
-    hp      = 5000,     -- 自定义 HP
-    magic   = 2000,
-    maxMana = 5000,
-}
-Layer4.play3Unit      = nil
-
---|=============================================================
--- §2d: 玩法 4 BOSS 配置（nPo0）
+--[§2d: 玩法 4 BOSS 配置（nPo0）]
 --|=============================================================
 Layer4.play4Config = {
     pos     = { x = -8524.9, y = 3300.0 },
@@ -598,9 +494,9 @@ function Layer4.start()
     Layer4.ensureDeathListener()
     Layer4.ensureMobDeathListener()
     Layer4.ensurePlay2KeyListeners()
-    -- 创建 play2 新区域并注册死亡事件
-    Layer4.initPlay3NewRegion()
-    Layer4.initPlay3NewRegionDeathListener()
+    -- 创建 play3 新区域并注册死亡事件
+    Layer4Play3.initPlay3NewRegion()
+    Layer4Play3.initPlay3NewRegionDeathListener()
 end
 
 function Layer4.shutdown()
@@ -637,8 +533,10 @@ function Layer4.shutdown()
     Layer4.play1Triggered = false
     -- 清理钥匙玩法监听/门区域
     Layer4.destroyPlay2KeyListeners()
+    -- 清理 play3 新区域
+    Layer4Play3.destroyPlay3NewRegion()
     -- 清理 play3 新区域死亡监听
-    Layer4.destroyPlay3NewRegionDeathListener()
+    Layer4Play3.destroyPlay3NewRegionDeathListener()
     -- 死亡监听不随关卡销毁（复用时 ensure 会重建），但此处清理 deathListener 便于热重载
     if Layer4.deathListener then pcall(function() Layer4.deathListener:destroy() end) Layer4.deathListener=nil end
     if Layer4.mobDeathListener then pcall(function() Layer4.mobDeathListener:destroy() end) Layer4.mobDeathListener=nil end
