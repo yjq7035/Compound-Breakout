@@ -51,7 +51,8 @@ local function applyBerserkHeal(casterHandle, level)
     local function onGain(unitObj)
         -- 启动周期治疗 Timer
         -- 用局部变量持有 Timer，onLose 通过 unitObj._data 找回并销毁
-        local t = Timer:new(TICK, true, function()
+        local t
+        t = Timer:new(TICK, true, function()
             -- 单位已死亡/已移除则自毁
             if unitObj._handle == nil then
                 if t then t:destroy() end

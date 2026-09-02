@@ -466,8 +466,8 @@ end
 function Layer4Play2.generateRandomSpawnPos()
     -- 使用文件头部预创建的矩形对象
     local allRects = {}
-    for i = 1, #play2RectsA do allRects[#allRects + 1] = play2RectsA[i] end
-    for i = 1, #play2RectsB do allRects[#allRects + 1] = play2RectsB[i] end
+    for i = 1, #Layer4Play2.play2RectsA do allRects[#allRects + 1] = Layer4Play2.play2RectsA[i] end
+    for i = 1, #Layer4Play2.play2RectsB do allRects[#allRects + 1] = Layer4Play2.play2RectsB[i] end
     if #allRects == 0 then 
         print("[Layer4Play2] §2b: generateRandomSpawnPos 警告：没有可用的矩形配置")
         return nil 
