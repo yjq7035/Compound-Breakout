@@ -216,22 +216,6 @@ function Rect:enumItems(filter, action)
     cj.EnumItemsInRect(self._handle, filter or nil, action)
 end
 
---- 选取矩形内的单位加入单位组
----@param whichGroup userdata 目标单位组
----@param filter boolexpr|nil
-function Rect:addUnitsToGroup(whichGroup, filter)
-    if (self._handle == nil or whichGroup == nil) then return end
-    cj.GroupEnumUnitsInRect(whichGroup, self._handle, filter or nil)
-end
-
---- 选取矩形内指定数量的单位加入单位组
----@param whichGroup userdata 目标单位组
----@param filter boolexpr|nil
----@param limit integer 数量上限
-function Rect:addUnitsToGroupLimited(whichGroup, filter, limit)
-    if (self._handle == nil or whichGroup == nil) then return end
-    cj.GroupEnumUnitsInRectCounted(whichGroup, self._handle, filter or nil, limit or 1)
-end
 
 -----------------------------------------------------------------
 -- 哈希表

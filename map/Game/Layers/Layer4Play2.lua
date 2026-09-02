@@ -46,6 +46,28 @@ Layer4Play2.play2DoorEvent       = nil
 Layer4Play2.play2KeyPickupEvent  = nil
 
 --|=============================================================
+--[§2b: 文件头部预先创建矩形配置（供 generateRandomSpawnPos 直接使用）]
+--|=============================================================
+-- 注意：play2RectsA/B 会在 initMobSpawnRectListeners 中被初始化
+-- 这里预留空数组作为默认值（全局变量，供 generateRandomSpawnPos 访问）
+Layer4Play2.play2RectsA = {}
+Layer4Play2.play2RectsB = {}
+
+-- 预创建矩形函数，供 generateRandomSpawnPos 使用
+local function makeRectFromConfig(cfg)
+    local ok, r = pcall(Rect.new, Rect, cfg.cx - cfg.width/2, cfg.cy - cfg.height/2, cfg.cx + cfg.width/2, cfg.cy + cfg.height/2)
+    if not ok or not r then
+        print(string.format("[Layer4Play2] 矩形%s 创建失败：ok=%s r=%s", cfg.id or "?", tostring(ok), tostring(r)))
+        return nil
+    end
+    -- 保存原始宽度和高度到 rect 对象，供 generateRandomSpawnPos 使用
+    r.width = cfg.width
+    r.height = cfg.height
+    print(string.format("[Layer4Play2] 矩形%s 创建成功：%.1f,%.1f -> %.1f,%.1f", cfg.id or "?", r:getMinX(), r:getMinY(), r:getMaxX(), r:getMaxY()))
+    return r
+end
+
+--|=============================================================
 --[§2b: 首次达到上限刷怪配置]
 -- 当首次达到 70 个上限时，给每个玩家额外刷一个怪
 --|=============================================================
@@ -307,6 +329,42 @@ function Layer4Play2.initMobSpawnRectListeners(rectsA, rectsB)
 end
 
 --|=============================================================
+--[§2b: 刷新矩形配置（给 generateRandomSpawnPos 使用）]
+--|=============================================================
+function Layer4Play2.refreshRects()
+    print("[Layer4Play2] refreshRects: 开始刷新矩形配置...")
+    
+    -- 从已创建的矩形监听器中收集矩形
+    local newRectsA = {}
+    local newRectsB = {}
+    
+    for key, ev in pairs(Layer4Play2.rectListeners or {}) do
+        if ev then
+            -- 提取矩形 ID（格式为 "A:id" 或 "B:id"）
+            local area, rid = key:match("(%a):(.+)")
+            if rid then
+                -- 从模块变量中获取对应的 Rect 对象
+                local rect = Layer4Play2["__rect" .. area .. "_" .. rid]
+                if rect then
+                    if area == "A" then
+                        table.insert(newRectsA, rect)
+                    else
+                        table.insert(newRectsB, rect)
+                    end
+                    print(string.format("[Layer4Play2] refreshRects: 收集到矩形 %s[%s]", area, rid))
+                end
+            end
+        end
+    end
+    
+    -- 修复：给全局变量赋值（不加 local）
+    Layer4Play2.play2RectsA = newRectsA or {}
+    Layer4Play2.play2RectsB = newRectsB or {}
+    
+    print(string.format("[Layer4Play2] refreshRects 完成：play2RectsA=%d 个，play2RectsB=%d 个", #Layer4Play2.play2RectsA, #Layer4Play2.play2RectsB))
+end
+
+--|=============================================================
 --[销毁刷怪区监听器]
 --|=============================================================
 function Layer4Play2.destroyMobSpawnRectListeners()
@@ -406,10 +464,10 @@ end
 
 -- 生成一个随机刷怪位置（A 或 B 区域）
 function Layer4Play2.generateRandomSpawnPos()
-    -- 使用保存的原始矩形配置
+    -- 使用文件头部预创建的矩形对象
     local allRects = {}
-    for i = 1, #Layer4Play2._rawRectsA do allRects[#allRects + 1] = Layer4Play2._rawRectsA[i] end
-    for i = 1, #Layer4Play2._rawRectsB do allRects[#allRects + 1] = Layer4Play2._rawRectsB[i] end
+    for i = 1, #play2RectsA do allRects[#allRects + 1] = play2RectsA[i] end
+    for i = 1, #play2RectsB do allRects[#allRects + 1] = play2RectsB[i] end
     if #allRects == 0 then 
         print("[Layer4Play2] §2b: generateRandomSpawnPos 警告：没有可用的矩形配置")
         return nil 
@@ -486,6 +544,14 @@ function Layer4Play2.spawnOneMob()
     local x, y = 0, 0
     for attempt = 1, maxAttempts do
         local spawnPos = Layer4Play2.generateRandomSpawnPos()
+        if not spawnPos then
+            print(string.format("[Layer4Play2] §2b: 第 %d 次尝试生成刷怪位置失败，跳过", attempt))
+            -- 如果所有尝试都失败，直接返回
+            if attempt == maxAttempts then
+                return
+            end
+            goto continue_loop
+        end
         x = spawnPos.x
         y = spawnPos.y
         local enemyCount = 0
@@ -519,6 +585,7 @@ function Layer4Play2.spawnOneMob()
             print(string.format("[Layer4Play2] §2b: 尝试 %d 次后仍未找到安全的刷怪位置，跳过刷怪", maxAttempts))
             return
         end
+        ::continue_loop::
     end
     
     -- 获取可用的怪物 ID
@@ -865,15 +932,18 @@ function Layer4Play2.start()
     Layer4Play2.play2KeyConfig.finished = false
     
     print("[Layer4Play2] start() 开始初始化...")
+
+
+    -- 更新后的配置：
+    -- 区域 A: 左下角 -15520.2, 4106.6, 右上角 -10520.0, 7668.6
+    -- 区域 B: 左下角 -10407.4, 5389.9, 右上角 -8299.1, 7591.7
     
-    -- 关卡 4 玩法 2 刷怪矩形区域配置（只有两个区域：A 区和 B 区）
-    -- A 区域：玩家进入这里触发激活玩法 2
-    -- B 区域：也可以进入刷怪
     local rectsA = {
-        { id = "A", cx = -12899.2, cy = 4112.3, width = 4952, height = 3570.2, name = "A 区（触发区）" },
+        { id = "A", cx = -13010.4, cy = 5887.6, width = 4999.8, height = 6594, name = "A 区（触发区）" },
     }
+    
     local rectsB = {
-        { id = "B", cx = -11454.3, cy = 5385.3, width = 2191.6, height = 2247.2, name = "B 区" },
+        { id = "B", cx = -9353.25, cy = 6490.8, width = 2108.3, height = 2190.8, name = "B 区" },
     }
     
     if #rectsA == 0 or #rectsB == 0 then
