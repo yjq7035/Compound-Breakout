@@ -3,11 +3,11 @@ require "Game.GameCoords"      -- 游戏坐标系统
 require "Game.Layers.Layer1"    -- 第一关卡模块（战役关卡：Layer1Area 5 面力量墙等，含关卡流程）
 require "Game.Layers.Layer2"    -- 第二关卡模块（入口/复活/药店）
 require "Game.Layers.Layer3"    -- 第三关卡模块（入口/复活/药店 + 墙/事件/计时/传送）
+require "Game.Layers.Layer4"    -- 第四关卡模块（入口/复活）
 require "Game.Layers.Layer4Play1"   -- 玩法 1 独立模块
 require "Game.Layers.Layer4Play2"   -- 玩法 2 独立模块
 require "Game.Layers.Layer4Play3"   -- 玩法 3 独立模块
 require "Game.Layers.Layer4Play4"   -- 玩法 4 独立模块
-require "Game.Layers.Layer4"    -- 第四关卡模块（入口/复活）
 
 
 require "Game.frame.Tooltip"
