@@ -124,6 +124,9 @@ function Layer4Play3.initPlay3NewRegionDeathListener()
             else
                 Player.sendAll(string.format("play3 新区域：%s 死亡！ID:%s", destructableName or "可破坏物", destructableId))
             end
+            
+            -- 尝试刷新 BOSS（在死亡时调用）
+            Layer4Play3.createPlay3Boss()
         end
     end)
     
@@ -158,12 +161,33 @@ Layer4Play3.play3Config = {
     maxMana = 0,
 }
 Layer4Play3.play3Unit      = nil
+Layer4Play3.play3BossSpawnCount = 0     -- BOSS 刷新次数
+Layer4Play3.play3BossMaxSpawn = 1        -- 最大刷新次数（只刷新一次）
+Layer4Play3.play3Finished = false       -- 玩法 3 是否通关
 
 --|=============================================================
 --[§2d: 玩法 3 BOSS 创建]
 --|=============================================================
 function Layer4Play3.createPlay3Boss()
     if Layer4Play3.play3Unit then print("[Layer4Play3] §2d: 玩法 3 BOSS 已存在") return end
+    
+    -- 检查是否已经通关，不再刷新 BOSS
+    if Layer4Play3.play3Finished then return end
+    
+    -- 检查是否已经达到最大刷新次数
+    if Layer4Play3.play3BossSpawnCount >= Layer4Play3.play3BossMaxSpawn then
+        print("[Layer4Play3] §2d: 已达到最大 BOSS 刷新次数，不再刷新")
+        return
+    end
+    
+    -- 概率刷新（这里设置为 100% 概率刷新，可以在这里改为概率值）
+    local shouldSpawn = true -- 直接设置为 true，或者改为 math.random(1, 100) >= 50 等概率判断
+    if not shouldSpawn then
+        print("[Layer4Play3] §2d: 概率未触发，不刷新 BOSS")
+        return
+    end
+    
+    print(string.format("[Layer4Play3] §2d: 刷新 BOSS 第 %d/%d 次", Layer4Play3.play3BossSpawnCount + 1, Layer4Play3.play3BossMaxSpawn))
     
     local p = Player:new(4) -- 固定为玩家 4
     if not p then print("[Layer4Play3] §2d: Player 4 nil") return end
@@ -176,6 +200,7 @@ function Layer4Play3.createPlay3Boss()
     u.state.defendWhite = u:getState(UNIT_STATE_DEFEND_WHITE)
     
     Layer4Play3.play3Unit = u
+    Layer4Play3.play3BossSpawnCount = Layer4Play3.play3BossSpawnCount + 1
 end
 
 --|=============================================================
@@ -183,8 +208,28 @@ end
 --|=============================================================
 function Layer4Play3.destroyPlay3Boss()
     if not Layer4Play3.play3Unit then return end
+    
+    -- 检查是否已经通关，避免重复触发
+    if Layer4Play3.play3Finished then
+        print("[Layer4Play3] §2d: 玩法 3 已经通关，跳过通关逻辑")
+        return
+    end
+    
+    -- 销毁 BOSS
     pcall(function() Layer4Play3.play3Unit:destroy() end)
-    print("[Layer4Play3] §2d: 玩法 3 BOSS 已销毁")
+    
+    -- 通关逻辑
+    Layer4Play3.play3Finished = true
+    print("[Layer4Play3] §2d: 玩法 3 通关！")
+    
+    -- 发送通关消息
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", "play3 通关！击杀 BOSS 完成所有挑战！", SystemMessage.COLOR_SUCCESS}}, 5.0)
+    else
+        Player.sendAll("play3 通关！击杀 BOSS 完成所有挑战！")
+    end
+    
+    -- 重置 BOSS 单位，允许下次刷新（如果需要）
     Layer4Play3.play3Unit = nil
 end
 

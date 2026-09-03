@@ -159,7 +159,7 @@ function Layer4Play2.initMobSpawnRectListeners(rectsA, rectsB)
     -- 保存原始配置到模块变量，供 generateRandomSpawnPos 使用
     Layer4Play2._rawRectsA = rectsA or {}
     Layer4Play2._rawRectsB = rectsB or {}
-    print(string.format("[Layer4Play2] 保存原始配置：_rawRectsA=%d个，_rawRectsB=%d个", #Layer4Play2._rawRectsA, #Layer4Play2._rawRectsB))
+    print(string.format("[Layer4Play2] 保存原始配置：_rawRectsA=%d 个，_rawRectsB=%d 个", #Layer4Play2._rawRectsA, #Layer4Play2._rawRectsB))
     
     local function makeRect(cfg)
         local ok, r = pcall(Rect.new, Rect, cfg.cx - cfg.width/2, cfg.cy - cfg.height/2, cfg.cx + cfg.width/2, cfg.cy + cfg.height/2)
@@ -167,7 +167,13 @@ function Layer4Play2.initMobSpawnRectListeners(rectsA, rectsB)
             print(string.format("[Layer4Play2] 矩形%s 创建失败：ok=%s r=%s", cfg.id or "?", tostring(ok), tostring(r)))
             return nil
         end
-        print(string.format("[Layer4Play2] 矩形%s 创建成功：%.1f,%.1f -> %.1f,%.1f", cfg.id or "?", r:getMinX(), r:getMinY(), r:getMaxX(), r:getMaxY()))
+        print(string.format("[Layer4Play2] 矩形%s 创建成功：%.1f,%.1f -> %.1f,%.1f", cfg.id or "?", r:getMinX(), r:getMaxY(), r:getMaxX(), r:getMaxY()))
+        -- 修复：保存原始配置字段到 rect 对象，供 generateRandomSpawnPos 使用
+        r.id = cfg.id
+        r.cx = cfg.cx
+        r.cy = cfg.cy
+        r.width = cfg.width
+        r.height = cfg.height
         return r
     end
     
