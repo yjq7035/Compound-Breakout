@@ -53,6 +53,18 @@ Layer4Play2.play2KeyPickupEvent  = nil
 Layer4Play2.play2RectsA = {}
 Layer4Play2.play2RectsB = {}
 
+--|=============================================================
+--[§2b: 刷怪区矩形配置（模块级常量，全文件共享）]
+-- 区域 A: 左下角 -15397.5, 4212.7, 右上角 -10596.5, 7615.6
+-- 区域 B: 左下角 -10407.4, 5389.9, 右上角 -8299.1, 7591.7
+--|=============================================================
+Layer4Play2.mobSpawnRectsCfgA = {
+    { id = "A", cx = -12997.0, cy = 5914.15, width = 4801.0, height = 3402.9, name = "A 区（触发区）" },
+}
+Layer4Play2.mobSpawnRectsCfgB = {
+    { id = "B", cx = -9353.25, cy = 6490.8, width = 2108.3, height = 2190.8, name = "B 区" },
+}
+
 -- 预创建矩形函数，供 generateRandomSpawnPos 使用
 local function makeRectFromConfig(cfg)
     local ok, r = pcall(Rect.new, Rect, cfg.cx - cfg.width/2, cfg.cy - cfg.height/2, cfg.cx + cfg.width/2, cfg.cy + cfg.height/2)
@@ -60,7 +72,10 @@ local function makeRectFromConfig(cfg)
         print(string.format("[Layer4Play2] 矩形%s 创建失败：ok=%s r=%s", cfg.id or "?", tostring(ok), tostring(r)))
         return nil
     end
-    -- 保存原始宽度和高度到 rect 对象，供 generateRandomSpawnPos 使用
+    -- 保存原始配置字段到 rect 对象，供 generateRandomSpawnPos 使用
+    r.id = cfg.id
+    r.cx = cfg.cx
+    r.cy = cfg.cy
     r.width = cfg.width
     r.height = cfg.height
     print(string.format("[Layer4Play2] 矩形%s 创建成功：%.1f,%.1f -> %.1f,%.1f", cfg.id or "?", r:getMinX(), r:getMinY(), r:getMaxX(), r:getMaxY()))
@@ -145,7 +160,7 @@ end
 -- 2. 确保 Event 回调正确获取进入单位
 -- 3. 确保事件触发条件正确（单位类型、玩家类型检查）
 --|=============================================================
-function Layer4Play2.initMobSpawnRectListeners(rectsA, rectsB)
+function Layer4Play2.initMobSpawnRectListeners()
     -- 修复：只有当 rectListeners 存在且非空时才跳过，避免重复初始化
     if Layer4Play2.rectListeners and #Layer4Play2.rectListeners > 0 then
         print("[Layer4Play2] initMobSpawnRectListeners 已初始化，跳过")
@@ -153,39 +168,23 @@ function Layer4Play2.initMobSpawnRectListeners(rectsA, rectsB)
     end
     print("[Layer4Play2] initMobSpawnRectListeners 开始初始化...")
     Layer4Play2.rectListeners = {}
-    Layer4Play2.mobSpawnRectsA = rectsA or {}
-    Layer4Play2.mobSpawnRectsB = rectsB or {}
-    
-    -- 保存原始配置到模块变量，供 generateRandomSpawnPos 使用
-    Layer4Play2._rawRectsA = rectsA or {}
-    Layer4Play2._rawRectsB = rectsB or {}
+    -- 直接使用模块级常量配置
+    Layer4Play2.mobSpawnRectsA = Layer4Play2.mobSpawnRectsCfgA
+    Layer4Play2.mobSpawnRectsB = Layer4Play2.mobSpawnRectsCfgB
+    Layer4Play2._rawRectsA = Layer4Play2.mobSpawnRectsCfgA
+    Layer4Play2._rawRectsB = Layer4Play2.mobSpawnRectsCfgB
     print(string.format("[Layer4Play2] 保存原始配置：_rawRectsA=%d 个，_rawRectsB=%d 个", #Layer4Play2._rawRectsA, #Layer4Play2._rawRectsB))
     
-    local function makeRect(cfg)
-        local ok, r = pcall(Rect.new, Rect, cfg.cx - cfg.width/2, cfg.cy - cfg.height/2, cfg.cx + cfg.width/2, cfg.cy + cfg.height/2)
-        if not ok or not r then
-            print(string.format("[Layer4Play2] 矩形%s 创建失败：ok=%s r=%s", cfg.id or "?", tostring(ok), tostring(r)))
-            return nil
-        end
-        print(string.format("[Layer4Play2] 矩形%s 创建成功：%.1f,%.1f -> %.1f,%.1f", cfg.id or "?", r:getMinX(), r:getMaxY(), r:getMaxX(), r:getMaxY()))
-        -- 修复：保存原始配置字段到 rect 对象，供 generateRandomSpawnPos 使用
-        r.id = cfg.id
-        r.cx = cfg.cx
-        r.cy = cfg.cy
-        r.width = cfg.width
-        r.height = cfg.height
-        return r
-    end
+    -- 同时保存 Rect 对象到 _mobRectsA/B，供 generateRandomSpawnPos 使用
+    Layer4Play2._mobRectsA = {}
+    Layer4Play2._mobRectsB = {}
     
     -- 处理 A 区域矩形
     for _, cfg in ipairs(Layer4Play2.mobSpawnRectsA) do
-        local r = makeRect(cfg)
+        local r = makeRectFromConfig(cfg)
         if r then
             print(string.format("[Layer4Play2] §2b: 监听矩形 A[%s] %.1f,%.1f -> %.1f,%.1f", cfg.id, r:getMinX(), r:getMinY(), r:getMaxX(), r:getMaxY()))
             local rid = cfg.id
-            -- 保存原始宽度和高度到 rect 对象，供 generateRandomSpawnPos 使用
-            r.width = cfg.width
-            r.height = cfg.height
             -- 修复：确保 Event:newRect 的回调能正确获取进入单位
             local ev = Event:newRect(r, function(ev)
                 if Layer4Play2.finished then return end
@@ -249,6 +248,8 @@ function Layer4Play2.initMobSpawnRectListeners(rectsA, rectsB)
                 -- 保留 Rect 和 Event 句柄防止 GC
                 Layer4Play2["__rectA_" .. rid] = r
                 Layer4Play2["__evA_" .. rid] = ev
+                -- 保存到 _mobRectsA
+                table.insert(Layer4Play2._mobRectsA, r)
             end
         else
             print(string.format("[Layer4Play2] §2b: 矩形 A[%s] 创建失败，跳过监听", cfg.id or "?"))
@@ -257,13 +258,10 @@ function Layer4Play2.initMobSpawnRectListeners(rectsA, rectsB)
     
     -- 处理 B 区域矩形
     for _, cfg in ipairs(Layer4Play2.mobSpawnRectsB) do
-        local r = makeRect(cfg)
+        local r = makeRectFromConfig(cfg)
         if r then
             print(string.format("[Layer4Play2] §2b: 监听矩形 B[%s] %.1f,%.1f -> %.1f,%.1f", cfg.id, r:getMinX(), r:getMinY(), r:getMaxX(), r:getMaxY()))
             local rid = cfg.id
-            -- 保存原始宽度和高度到 rect 对象，供 generateRandomSpawnPos 使用
-            r.width = cfg.width
-            r.height = cfg.height
             local ev = Event:newRect(r, function(ev)
                 if Layer4Play2.finished then return end
                 
@@ -325,6 +323,8 @@ function Layer4Play2.initMobSpawnRectListeners(rectsA, rectsB)
                 Layer4Play2.rectListeners["B:" .. rid] = ev
                 Layer4Play2["__rectB_" .. rid] = r
                 Layer4Play2["__evB_" .. rid] = ev
+                -- 保存到 _mobRectsB
+                table.insert(Layer4Play2._mobRectsB, r)
             end
         else
             print(string.format("[Layer4Play2] §2b: 矩形 B[%s] 创建失败，跳过监听", cfg.id or "?"))
@@ -472,8 +472,19 @@ end
 function Layer4Play2.generateRandomSpawnPos()
     -- 使用文件头部预创建的矩形对象
     local allRects = {}
+    -- 优先使用 play2RectsA/B（refreshRects 后赋值）
     for i = 1, #Layer4Play2.play2RectsA do allRects[#allRects + 1] = Layer4Play2.play2RectsA[i] end
     for i = 1, #Layer4Play2.play2RectsB do allRects[#allRects + 1] = Layer4Play2.play2RectsB[i] end
+    -- 如果 play2RectsA/B 为空，尝试使用_mobRectsA/B 或_rawRectsA/B
+    if #allRects == 0 then
+        for i = 1, #Layer4Play2._mobRectsA do allRects[#allRects + 1] = Layer4Play2._mobRectsA[i] end
+        for i = 1, #Layer4Play2._mobRectsB do allRects[#allRects + 1] = Layer4Play2._mobRectsB[i] end
+    end
+    -- 如果仍然为空，尝试使用_rawRectsA/B（initMobSpawnRectListeners 中保存的原始配置）
+    if #allRects == 0 then
+        for i = 1, #Layer4Play2._rawRectsA do allRects[#allRects + 1] = Layer4Play2._rawRectsA[i] end
+        for i = 1, #Layer4Play2._rawRectsB do allRects[#allRects + 1] = Layer4Play2._rawRectsB[i] end
+    end
     if #allRects == 0 then 
         print("[Layer4Play2] §2b: generateRandomSpawnPos 警告：没有可用的矩形配置")
         return nil 
@@ -614,11 +625,8 @@ function Layer4Play2.spawnOneMob()
         -- 添加到句柄列表，用于死亡监听
         table.insert(Layer4Play2.play2MobHandles, u._handle)
         print(string.format("[Layer4Play2] §2b: 在 %.1f,%.1f 创建怪物 %s 给玩家%d", x, y, mobId, bestPlayer:getId()))
-        print(string.format("[Layer4Play2] §2b: 当前刷怪单位总数：%d / 上限：70", #Layer4Play2.play2MobHandles, 70))
-        
-        -- 可选：设置单位属性（如 HP、护甲等）
-        -- u:setLife(1000)
-        -- u:setArmor(30)
+        print(string.format("[Layer4Play2] §2b: 当前刷怪存活数：%d / 上限：70", totalAlive + 1))
+     
     else
         print(string.format("[Layer4Play2] §2b: 创建怪物失败 %s", mobId))
     end
@@ -940,33 +948,18 @@ function Layer4Play2.start()
     print("[Layer4Play2] start() 开始初始化...")
 
 
-    -- 更新后的配置：
-    -- 区域 A: 左下角 -15520.2, 4106.6, 右上角 -10520.0, 7668.6
-    -- 区域 B: 左下角 -10407.4, 5389.9, 右上角 -8299.1, 7591.7
-    
-    local rectsA = {
-        { id = "A", cx = -13010.4, cy = 5887.6, width = 4999.8, height = 6594, name = "A 区（触发区）" },
-    }
-    
-    local rectsB = {
-        { id = "B", cx = -9353.25, cy = 6490.8, width = 2108.3, height = 2190.8, name = "B 区" },
-    }
-    
-    if #rectsA == 0 or #rectsB == 0 then
-        print("[Layer4Play2] 警告：使用默认空矩形配置")
-        rectsA = {}
-        rectsB = {}
-    else
-        print(string.format("[Layer4Play2] 关卡 4 玩法 2 矩形配置：A 区%d个，B 区%d个", #rectsA, #rectsB))
-        for _, cfg in ipairs(rectsA) do
-            print(string.format("  A[%s]: %.1f,%.1f -> %.1f,%.1f", cfg.id, cfg.cx - cfg.width/2, cfg.cy - cfg.height/2, cfg.cx + cfg.width/2, cfg.cy + cfg.height/2))
-        end
-        for _, cfg in ipairs(rectsB) do
-            print(string.format("  B[%s]: %.1f,%.1f -> %.1f,%.1f", cfg.id, cfg.cx - cfg.width/2, cfg.cy - cfg.height/2, cfg.cx + cfg.width/2, cfg.cy + cfg.height/2))
-        end
+    -- 矩形配置已提取到文件顶部 Layer4Play2.mobSpawnRectsCfgA/B（全文件共享）
+    print(string.format("[Layer4Play2] 关卡 4 玩法 2 矩形配置：A 区%d个，B 区%d个",
+        #Layer4Play2.mobSpawnRectsCfgA, #Layer4Play2.mobSpawnRectsCfgB))
+    for _, cfg in ipairs(Layer4Play2.mobSpawnRectsCfgA) do
+        print(string.format("  A[%s]: %.1f,%.1f -> %.1f,%.1f", cfg.id, cfg.cx - cfg.width/2, cfg.cy - cfg.height/2, cfg.cx + cfg.width/2, cfg.cy + cfg.height/2))
     end
-    
-    Layer4Play2.initMobSpawnRectListeners(rectsA, rectsB)
+    for _, cfg in ipairs(Layer4Play2.mobSpawnRectsCfgB) do
+        print(string.format("  B[%s]: %.1f,%.1f -> %.1f,%.1f", cfg.id, cfg.cx - cfg.width/2, cfg.cy - cfg.height/2, cfg.cx + cfg.width/2, cfg.cy + cfg.height/2))
+    end
+
+    Layer4Play2.initMobSpawnRectListeners()
+    Layer4Play2.ensureMobDeathListener()
     
     print("[Layer4Play2] 玩法 2 初始化完成")
 end
@@ -1007,6 +1000,12 @@ function Layer4Play2.shutdown()
     
     -- 销毁刷怪区监听
     Layer4Play2.destroyMobSpawnRectListeners()
+    
+    -- 清理死亡监听
+    if Layer4Play2.mobDeathListener then
+        pcall(function() Layer4Play2.mobDeathListener:destroy() end)
+        Layer4Play2.mobDeathListener = nil
+    end
     
     print("[Layer4Play2] 关闭")
 end
