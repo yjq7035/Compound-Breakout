@@ -2,15 +2,11 @@
 -- Layer4Play3 — 关卡 4 玩法 3 独立模块
 --|=============================================================
 -- 职责：
---   1. §2d: 玩法 3 BOSS 创建和销毁
---   2. play3 新区域定义
---   3. play3 新区域死亡事件监听
+--   1. §1d: play3 矩形区域定义与监听
+--   2. §2d: 区域内可破坏物死亡 → 概率召唤玩法2随机怪物（HP+500/ATK+20 后×25%）
+--   3. §2d: 概率出现隐藏BOSS（HP+1万/ATK+100/攻强+500/魔强+2000/护甲+150/魔抗+150）
+--   4. 击杀隐藏BOSS 时玩法 3 通关
 --|=============================================================
-
---|=============================================================
---[常量] 魔法强化换算（与 GameDamage.lua 保持一致）
---|=============================================================
-local MAGICAMP_TO_PCT = 1000
 
 --|=============================================================
 --[§1 坐标]
@@ -26,53 +22,29 @@ Layer4Play3 = {
     end
 }
 
---|=============================================================
---[§1 坐标]
---|=============================================================
 Layer4Play3.entryPos     = { x = -8518.2, y = 747.9, name = "关卡 4 入口/复活/传送" }
 Layer4Play3.revivePos    = { x = -8518.2, y = 747.9, name = "关卡 4 复活点" }
 Layer4Play3.teleportPos  = { x = -8518.2, y = 747.9, name = "关卡 4 传送点" }
 Layer4Play3.potionShopPos= { x = -8518.2, y = 747.9, name = "关卡 4 药剂商店（占位）" }
 
 --|=============================================================
---[§1d: play3 新区域定义]
+--[§1d: play3 矩形区域定义]
 --|=============================================================
 -- 左下角：-15497.8,565.2 右上角：-12546.1,3765.5
---|=============================================================
 Layer4Play3.play3NewRegion = {
     minx = -15497.8, miny = 565.2, maxx = -12546.1, maxy = 3765.5,
     name = "play3 新区域（左下角：-15497.8,565.2 右上角：-12546.1,3765.5）",
 }
 
 --|=============================================================
---[§1d: play3 新区域初始化]
---|=============================================================
--- 创建 Rect 对象和触发器
+--[§1d: play3 新区域初始化 / 销毁]
 --|=============================================================
 function Layer4Play3.initPlay3NewRegion()
     if Layer4Play3.play3NewRegionRect then return end
-    print("[Layer4Play3] §1d: 创建 play3 新区域 Rect 和触发器...")
-    
-    Layer4Play3.play3NewRegionRect = Rect:new(Layer4Play3.play3NewRegion.minx, Layer4Play3.play3NewRegion.miny, 
-                                         Layer4Play3.play3NewRegion.maxx, Layer4Play3.play3NewRegion.maxy)
-    
-    local rid = "play3NewRegion"
-    local ev = Event:newRect(Layer4Play3.play3NewRegionRect, function(ev)
-        if Layer4Play3.finished then return end
-        local u = ev.unit or cj.GetEnteringUnit()
-        if not u then return end
-        local okOwner, owner = pcall(Player.fromHandle, cj.GetOwningPlayer(u))
-        if not okOwner or not owner or not owner.isUser or not owner:isUser() then return end
-        if not cj.IsUnitType(u, UNIT_TYPE_HERO) then return end
-        if owner:getId() < 0 or owner:getId() > 3 then return end
-        
-        print(string.format("[Layer4Play3] §1d: 玩家%d 英雄进入 play3 新区域", owner:getId()))
-    end)
-    Layer4Play3.play3NewRegionEvent = ev
-    
-    print(string.format("[Layer4Play3] §1d: play3 新区域监听已注册 (min: %.1f,%.1f max: %.1f,%.1f)", 
-                      Layer4Play3.play3NewRegion.minx, Layer4Play3.play3NewRegion.miny, 
-                      Layer4Play3.play3NewRegion.maxx, Layer4Play3.play3NewRegion.maxy))
+    local cfg = Layer4Play3.play3NewRegion
+    Layer4Play3.play3NewRegionRect = Rect:new(cfg.minx, cfg.miny, cfg.maxx, cfg.maxy)
+    print(string.format("[Layer4Play3] §1d: play3 新区域已创建 (min: %.1f,%.1f max: %.1f,%.1f)",
+          cfg.minx, cfg.miny, cfg.maxx, cfg.maxy))
 end
 
 function Layer4Play3.destroyPlay3NewRegion()
@@ -80,190 +52,160 @@ function Layer4Play3.destroyPlay3NewRegion()
         pcall(function() Layer4Play3.play3NewRegionRect:destroy() end)
         Layer4Play3.play3NewRegionRect = nil
     end
-    if Layer4Play3.play3NewRegionEvent then
-        pcall(function() Layer4Play3.play3NewRegionEvent:destroy() end)
-        Layer4Play3.play3NewRegionEvent = nil
-    end
 end
 
 --|=============================================================
--- 监听区域内可破坏物死亡事件，输出死亡信息
+--[§2d: 玩法 3 配置]
+--|=============================================================
+Layer4Play3.play3Config = {
+    spawnChance  = 50,   -- 可破坏物死亡召唤普通怪概率（%）
+    bossChance   = 10,   -- 出现隐藏BOSS概率（%）
+    bossHp       = 10000,-- 隐藏BOSS 额外生命
+    bossAtk      = 100,  -- 隐藏BOSS 额外攻击
+    bossAtkStr   = 500,  -- 攻击强化（每1000=+100%）
+    bossMagAmp   = 2000, -- 魔法强化（每1000=+100%）
+    bossArmor    = 150,  -- 护甲
+    bossResMag   = 150,  -- 魔法抗性
+}
+Layer4Play3.finished  = false   -- 玩法 3 是否通关
+Layer4Play3.bossUnit  = nil     -- 隐藏BOSS 单位
+
+--|=============================================================
+--[§2d: 召唤怪物]
+-- @param x,y      死亡位置
+-- @param isBoss   是否隐藏BOSS（额外属性加成）
+--|=============================================================
+function Layer4Play3.spawnMonster(x, y, isBoss)
+    local mobId = Layer4.getRandomMobId()
+    if not mobId then return end
+    local p = Player:new(4)
+    if not p then return end
+    local u = Unit:new(p, mobId, x, y, 270)
+    if not u or not u._handle then return end
+    -- 生命 +500、攻击 +20 后 ×25%
+    u:addState(UNIT_STATE_LIFE, 500):addState(UNIT_STATE_ATTACK_WHITE, 20)
+    u:addState(UNIT_STATE_LIFE, -math.floor(u:getState(UNIT_STATE_LIFE) * 0.75))
+    u:addState(UNIT_STATE_ATTACK_WHITE, -math.floor(u:getState(UNIT_STATE_ATTACK_WHITE) * 0.75))
+    if isBoss then
+        local cfg = Layer4Play3.play3Config
+        u:addState(UNIT_STATE_LIFE, cfg.bossHp)
+        u:addState(UNIT_STATE_ATTACK_WHITE, cfg.bossAtk)
+        u:addState(UNIT_STATE_DEFEND_WHITE, cfg.bossArmor)
+        u.state.attackStr = (u.state.attackStr or 0) + cfg.bossAtkStr
+        u.state.magicAmp  = (u.state.magicAmp  or 0) + cfg.bossMagAmp
+        u.state.resMag    = (u.state.resMag    or 0) + cfg.bossResMag
+        Layer4Play3.bossUnit = u
+        if SystemMessage and SystemMessage.send then
+            SystemMessage.send({{"STR", "隐藏BOSS 出现！", SystemMessage.COLOR_WARN}}, 4.0)
+        else
+            Player.sendAll("隐藏BOSS 出现！")
+        end
+    end
+    print(string.format("[Layer4Play3] §2d: 召唤%s %s @%.1f,%.1f",
+          isBoss and "隐藏BOSS" or "普通怪", mobId, x, y))
+end
+
+--|=============================================================
+--[§2d: 监听区域内可破坏物死亡]
 --|=============================================================
 function Layer4Play3.initPlay3NewRegionDeathListener()
-    if Layer4Play3.play3NewRegionDeathEvent then return end
-    print("[Layer4Play3] §1d-DEATH: 注册 play3 新区域死亡监听...")
-    
-    Layer4Play3.play3NewRegionDeathEvent = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
-        if Layer4Play3.finished then return end
-        
-        local handle = ev.unit
-        if not handle then return end
-        
-        -- 检查死亡单位是否属于可破坏物类型
-        local typeId = cj.GetDestructableTypeId(handle)
-        if typeId == 0 then return end -- 非可破坏物
-        
-        -- 检查是否在 play3 新区域内
-        local dx, dy = cj.GetUnitX(handle), cj.GetUnitY(handle)
-        if not dx or not dy then return end
-        
-        local x, y = tonumber(dx), tonumber(dy)
-        local minX, minY, maxX, maxY = Layer4Play3.play3NewRegion.minx, Layer4Play3.play3NewRegion.miny, 
-                                      Layer4Play3.play3NewRegion.maxx, Layer4Play3.play3NewRegion.maxy
-        
-        if x >= minX and x <= maxX and y >= minY and y <= maxY then
-            -- 获取可破坏物 ID
-            local destructableId = cj.GetDestructableId(handle)
-            local destructableName = cj.GetDestructableTypeString(destructableId) or cj.GetDestructableTypeIdString(handle)
-            
-            print(string.format("[Layer4Play3] §1d-DEATH: play3 新区域内可破坏物死亡 - ID: %s, Name: %s, Type: %d, Pos: %.1f,%.1f", 
-                              destructableId, destructableName or "未知", typeId, x, y))
-            
-            if SystemMessage and SystemMessage.send then
-                SystemMessage.send({{"STR", string.format("play3 新区域：%s 死亡！ID:%s", destructableName or "可破坏物", destructableId), SystemMessage.COLOR_WARN}}, 3.0)
-            else
-                Player.sendAll(string.format("play3 新区域：%s 死亡！ID:%s", destructableName or "可破坏物", destructableId))
-            end
-            
-            -- 尝试刷新 BOSS（在死亡时调用）
-            Layer4Play3.createPlay3Boss()
+    if Layer4Play3.play3DeathTrigger then return end
+    Layer4Play3.play3DeathTrigger = Destroyable.EnumDestructablesInRect(Layer4Play3.play3NewRegionRect, function(d)
+        local d = Destroyable.fromHandle(cj.GetTriggerDestructable())
+        local x, y = d:getX(), d:getY()
+        local cfg = Layer4Play3.play3Config
+        local r = math.random(1, 100)
+        if r <= cfg.bossChance then
+            Layer4Play3.spawnMonster(x, y, true)   -- 隐藏BOSS
+        elseif r <= cfg.bossChance + cfg.spawnChance then
+            Layer4Play3.spawnMonster(x, y, false)  -- 普通怪
         end
     end)
-    
-    Layer4Play3.play3NewRegionRect = Rect:new(Layer4Play3.play3NewRegion.minx, Layer4Play3.play3NewRegion.miny, 
-                                         Layer4Play3.play3NewRegion.maxx, Layer4Play3.play3NewRegion.maxy)
-    print(string.format("[Layer4Play3] §1d-DEATH: play3 新区域监听已注册 (min: %.1f,%.1f max: %.1f,%.1f)", 
-                      Layer4Play3.play3NewRegion.minx, Layer4Play3.play3NewRegion.miny, 
-                      Layer4Play3.play3NewRegion.maxx, Layer4Play3.play3NewRegion.maxy))
+    print("[Layer4Play3] §2d-DEATH: play3 新区域死亡可破坏物监听已注册")
 end
 
 function Layer4Play3.destroyPlay3NewRegionDeathListener()
-    if Layer4Play3.play3NewRegionDeathEvent then
-        pcall(function() Layer4Play3.play3NewRegionDeathEvent:destroy() end)
-        Layer4Play3.play3NewRegionDeathEvent = nil
-    end
-    if Layer4Play3.play3NewRegionRect then
-        pcall(function() Layer4Play3.play3NewRegionRect:destroy() end)
-        Layer4Play3.play3NewRegionRect = nil
+    if play3DeathTrigger then
+        pcall(function() play3DeathTrigger:destroy() end)
+        play3DeathTrigger = nil
     end
 end
 
 --|=============================================================
---[§2d: 玩法 3 BOSS 配置（nPo0）]
+--[§2d: 监听隐藏BOSS死亡 → 通关]
 --|=============================================================
-Layer4Play3.play3Config = {
-    pos     = { x = -8524.9, y = 3300.0 },
-    unitId  = "nPo0",
-    facing  = 270,
-    armor   = 100,      -- 高护甲
-    hp      = 7500,     -- 高生命
-    magic   = 0,        -- 无魔法强化
-    maxMana = 0,
-}
-Layer4Play3.play3Unit      = nil
-Layer4Play3.play3BossSpawnCount = 0     -- BOSS 刷新次数
-Layer4Play3.play3BossMaxSpawn = 1        -- 最大刷新次数（只刷新一次）
-Layer4Play3.play3Finished = false       -- 玩法 3 是否通关
+function Layer4Play3.initPlay3BossDeathListener()
+    if Layer4Play3.play3BossDeathEvent then return end
+    Layer4Play3.play3BossDeathEvent = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
+        local u = Layer4Play3.bossUnit
+        if not u or not ev.unit then return end
+        local ok, dead = pcall(Unit.fromHandle, ev.unit)
+        if not ok or dead ~= u then return end
+        Layer4Play3.bossUnit = nil
+        if Layer4Play3.finished then return end
+        Layer4Play3.finished = true
+        print("[Layer4Play3] §2d: 隐藏BOSS 被击杀，玩法 3 通关！")
+        if SystemMessage and SystemMessage.send then
+            SystemMessage.send({{"STR", "隐藏BOSS 已击杀，玩法 3 通关！", SystemMessage.COLOR_SUCCESS}}, 5.0)
+        else
+            Player.sendAll("隐藏BOSS 已击杀，玩法 3 通关！")
+        end
+    end)
+end
 
---|=============================================================
---[§2d: 玩法 3 BOSS 创建]
---|=============================================================
-function Layer4Play3.createPlay3Boss()
-    if Layer4Play3.play3Unit then print("[Layer4Play3] §2d: 玩法 3 BOSS 已存在") return end
-    
-    -- 检查是否已经通关，不再刷新 BOSS
-    if Layer4Play3.play3Finished then return end
-    
-    -- 检查是否已经达到最大刷新次数
-    if Layer4Play3.play3BossSpawnCount >= Layer4Play3.play3BossMaxSpawn then
-        print("[Layer4Play3] §2d: 已达到最大 BOSS 刷新次数，不再刷新")
-        return
+function Layer4Play3.destroyPlay3BossDeathListener()
+    if Layer4Play3.play3BossDeathEvent then
+        pcall(function() Layer4Play3.play3BossDeathEvent:destroy() end)
+        Layer4Play3.play3BossDeathEvent = nil
     end
-    
-    -- 概率刷新（这里设置为 100% 概率刷新，可以在这里改为概率值）
-    local shouldSpawn = true -- 直接设置为 true，或者改为 math.random(1, 100) >= 50 等概率判断
-    if not shouldSpawn then
-        print("[Layer4Play3] §2d: 概率未触发，不刷新 BOSS")
-        return
-    end
-    
-    print(string.format("[Layer4Play3] §2d: 刷新 BOSS 第 %d/%d 次", Layer4Play3.play3BossSpawnCount + 1, Layer4Play3.play3BossMaxSpawn))
-    
-    local p = Player:new(4) -- 固定为玩家 4
-    if not p then print("[Layer4Play3] §2d: Player 4 nil") return end
-    
-    local u = Unit:new(p, Layer4Play3.play3Config.unitId, Layer4Play3.play3Config.pos.x, 
-                       Layer4Play3.play3Config.pos.y, Layer4Play3.play3Config.facing)
-    if not u or not u._handle then return end
-    
-    u.state.resMag = u:getState(UNIT_STATE_DEFEND_WHITE)
-    u.state.defendWhite = u:getState(UNIT_STATE_DEFEND_WHITE)
-    
-    Layer4Play3.play3Unit = u
-    Layer4Play3.play3BossSpawnCount = Layer4Play3.play3BossSpawnCount + 1
 end
 
 --|=============================================================
---[§2d: 玩法 3 BOSS 销毁]
+--[§2d: 清理隐藏BOSS单位]
 --|=============================================================
 function Layer4Play3.destroyPlay3Boss()
-    if not Layer4Play3.play3Unit then return end
-    
-    -- 检查是否已经通关，避免重复触发
-    if Layer4Play3.play3Finished then
-        print("[Layer4Play3] §2d: 玩法 3 已经通关，跳过通关逻辑")
-        return
+    if Layer4Play3.bossUnit then
+        pcall(function() Layer4Play3.bossUnit:destroy() end)
+        Layer4Play3.bossUnit = nil
     end
-    
-    -- 销毁 BOSS
-    pcall(function() Layer4Play3.play3Unit:destroy() end)
-    
-    -- 通关逻辑
-    Layer4Play3.play3Finished = true
-    print("[Layer4Play3] §2d: 玩法 3 通关！")
-    
-    -- 发送通关消息
-    if SystemMessage and SystemMessage.send then
-        SystemMessage.send({{"STR", "play3 通关！击杀 BOSS 完成所有挑战！", SystemMessage.COLOR_SUCCESS}}, 5.0)
-    else
-        Player.sendAll("play3 通关！击杀 BOSS 完成所有挑战！")
-    end
-    
-    -- 重置 BOSS 单位，允许下次刷新（如果需要）
-    Layer4Play3.play3Unit = nil
+end
+
+--|=============================================================
+--[§2d: 创建死亡可破坏物]
+-- @param x,y      可破坏物坐标
+-- @param typeId   可破坏物类型（四字符码或整数）
+-- @param facing   面向角度
+-- @param scale    缩放比例
+--|=============================================================
+function Layer4Play3.createDeadDestructable(x, y, typeId, facing, scale)
+    if type(typeId) == "string" then typeId = c2i(typeId) end
+    local h = cj.CreateDeadDestructable(typeId, x, y, facing or 0, scale or 1, 0)
+    if not h then return nil end
+    local d = Destroyable.fromHandle(h)
+    if not d then return nil end
+    return d
 end
 
 --|=============================================================
 --[§2 生命周期]
 --|=============================================================
 function Layer4Play3.start()
-    if Layer4Play3.started then print("[Layer4Play3] 已启动跳过") return end
-    
+    if Layer4Play3.started then return end
     Layer4Play3.started = true
     Layer4Play3.finished = false
-    
-    -- 创建 play3 新区域
+    Layer4Play3.bossUnit = nil
     Layer4Play3.initPlay3NewRegion()
     Layer4Play3.initPlay3NewRegionDeathListener()
-    
-    -- 创建 BOSS
-    Layer4Play3.createPlay3Boss()
-    
+    Layer4Play3.initPlay3BossDeathListener()
     print("[Layer4Play3] 玩法 3 已启动")
 end
 
 function Layer4Play3.shutdown()
-    if not Layer4Play3.started and not Layer4Play3.finished then
-        -- 允许重复调用清理
-    end
     Layer4Play3.started = false
-    
-    -- 销毁 BOSS
     Layer4Play3.destroyPlay3Boss()
-    
-    -- 清理死亡监听
     Layer4Play3.destroyPlay3NewRegionDeathListener()
-    
+    Layer4Play3.destroyPlay3BossDeathListener()
+    Layer4Play3.destroyPlay3NewRegion()
     print("[Layer4Play3] 关闭")
 end
 
@@ -275,7 +217,4 @@ Layer4Play3RevivePos    = Layer4Play3.revivePos
 Layer4Play3TeleportPos  = Layer4Play3.teleportPos
 Layer4Play3PotionShopPos= Layer4Play3.potionShopPos
 
---|=============================================================
---[返回模块]
---|=============================================================
 return Layer4Play3

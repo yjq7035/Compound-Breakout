@@ -36,7 +36,7 @@ Layer4Play2.play2MobHandles   = {} -- 单位 handle 列表
 --|=============================================================
 Layer4Play2.play2KeyConfig = {
     itemId      = "ao8y",
-    dropChance  = 0.01,  -- 单只死亡掉落概率 1%，可在测试时临时调高
+    dropChance  = 0.05,  -- 单只死亡掉落概率 5%
     doorWallIndex = 2,   -- 横墙 2 为通关门
     doorSize    = { w = 700, h = 700 },
     finished    = false,
@@ -69,7 +69,6 @@ Layer4Play2.mobSpawnRectsCfgB = {
 local function makeRectFromConfig(cfg)
     local ok, r = pcall(Rect.new, Rect, cfg.cx - cfg.width/2, cfg.cy - cfg.height/2, cfg.cx + cfg.width/2, cfg.cy + cfg.height/2)
     if not ok or not r then
-        print(string.format("[Layer4Play2] 矩形%s 创建失败：ok=%s r=%s", cfg.id or "?", tostring(ok), tostring(r)))
         return nil
     end
     -- 保存原始配置字段到 rect 对象，供 generateRandomSpawnPos 使用
@@ -78,7 +77,6 @@ local function makeRectFromConfig(cfg)
     r.cy = cfg.cy
     r.width = cfg.width
     r.height = cfg.height
-    print(string.format("[Layer4Play2] 矩形%s 创建成功：%.1f,%.1f -> %.1f,%.1f", cfg.id or "?", r:getMinX(), r:getMinY(), r:getMaxX(), r:getMaxY()))
     return r
 end
 
@@ -94,41 +92,30 @@ Layer4Play2.play2HasBonus = false -- 是否已经触发过 bonus spawn 奖励
 --|=============================================================
 local function createOne(w)
     if not w or not w.x or not w.y or not w.id then
-        print(string.format("[Layer4Play2] createOne: nil params w=%s", tostring(w and w.name or w)))
         return nil
     end
     local face = w.face or (w.dir == "H" and 270 or 0)
     local typeId = c2i(w.id) or 0
     local x, y = tonumber(w.x), tonumber(w.y)
     if not x or not y then
-        print(string.format("[Layer4Play2] createOne: bad coords id=%s", tostring(w.id)))
         return nil
     end
     local h = cj.CreateDestructable(typeId, x, y, face, 1, 0)
-    if h then
-        print(string.format("[Layer4Play2] createOne: %s at %.1f,%.1f ok", w.name or w.id, x, y))
-    else
-        print(string.format("[Layer4Play2] createOne FAILED: %s id=%s at %.1f,%.1f", w.name or "?", tostring(w.id), x, y))
-    end
     return h
 end
 
 function Layer4Play2.createPlay2Wall1()
     if Layer4Play2.play2Triggered then return end
     Layer4Play2.play2Triggered = true
-    print("[Layer4Play2] §2b: 创建竖墙 1...")
     local h = createOne(Layer4Play2.play2Wall1Pos)
     if h then
         Layer4Play2.play2WallHandle = h
         -- 注意：wallMap 在 Layer4 中管理，这里不添加
-        print(string.format("  ✓ 竖墙 1 已创建 %.1f,%.1f", Layer4Play2.play2Wall1Pos.x, Layer4Play2.play2Wall1Pos.y))
         if SystemMessage and SystemMessage.send then
             SystemMessage.send({{"STR", "所有玩家已进入刷怪区，竖墙 1 已升起！", SystemMessage.COLOR_WARN}}, 3.0)
         end
         -- 启动刷怪计时器
         Layer4Play2.startMobSpawnerTimer()
-    else
-        print("  ✗ 竖墙 1 创建失败")
     end
 end
 
@@ -163,18 +150,14 @@ end
 function Layer4Play2.initMobSpawnRectListeners()
     -- 修复：只有当 rectListeners 存在且非空时才跳过，避免重复初始化
     if Layer4Play2.rectListeners and #Layer4Play2.rectListeners > 0 then
-        print("[Layer4Play2] initMobSpawnRectListeners 已初始化，跳过")
         return
     end
-    print("[Layer4Play2] initMobSpawnRectListeners 开始初始化...")
     Layer4Play2.rectListeners = {}
     -- 直接使用模块级常量配置
     Layer4Play2.mobSpawnRectsA = Layer4Play2.mobSpawnRectsCfgA
     Layer4Play2.mobSpawnRectsB = Layer4Play2.mobSpawnRectsCfgB
     Layer4Play2._rawRectsA = Layer4Play2.mobSpawnRectsCfgA
     Layer4Play2._rawRectsB = Layer4Play2.mobSpawnRectsCfgB
-    print(string.format("[Layer4Play2] 保存原始配置：_rawRectsA=%d 个，_rawRectsB=%d 个", #Layer4Play2._rawRectsA, #Layer4Play2._rawRectsB))
-    
     -- 同时保存 Rect 对象到 _mobRectsA/B，供 generateRandomSpawnPos 使用
     Layer4Play2._mobRectsA = {}
     Layer4Play2._mobRectsB = {}
@@ -183,7 +166,6 @@ function Layer4Play2.initMobSpawnRectListeners()
     for _, cfg in ipairs(Layer4Play2.mobSpawnRectsA) do
         local r = makeRectFromConfig(cfg)
         if r then
-            print(string.format("[Layer4Play2] §2b: 监听矩形 A[%s] %.1f,%.1f -> %.1f,%.1f", cfg.id, r:getMinX(), r:getMinY(), r:getMaxX(), r:getMaxY()))
             local rid = cfg.id
             -- 修复：确保 Event:newRect 的回调能正确获取进入单位
             local ev = Event:newRect(r, function(ev)
@@ -192,45 +174,38 @@ function Layer4Play2.initMobSpawnRectListeners()
                 -- 修复：优先从 Event 对象获取单位，Event:newRect 回调中 ev._unit 已经设置
                 local u = ev._unit or cj.GetEnteringUnit()
                 if not u then 
-                    print(string.format("[Layer4Play2] §2b: 矩形 A[%s] 触发但无单位", rid))
                     return 
                 end
                 
                 -- 获取单位所有者
                 local okOwner, owner = pcall(Player.fromHandle, cj.GetOwningPlayer(u))
                 if not okOwner or not owner then 
-                    print(string.format("[Layer4Play2] §2b: 矩形 A[%s] 单位所有者获取失败", rid))
                     return 
                 end
                 
                 -- 检查是否是英雄单位
                 if not cj.IsUnitType(u, UNIT_TYPE_HERO) then 
-                    print(string.format("[Layer4Play2] §2b: 矩形 A[%s] 单位不是英雄", rid))
                     return 
                 end
                 
                 -- 检查是否是用户玩家
                 if not owner.isUser or not owner:isUser() then 
-                    print(string.format("[Layer4Play2] §2b: 矩形 A[%s] 玩家不是用户玩家", rid))
                     return 
                 end
                 
                 -- 检查玩家 ID 范围
                 local pid = owner:getId()
                 if pid < 0 or pid > 3 then 
-                    print(string.format("[Layer4Play2] §2b: 矩形 A[%s] 玩家 ID 超出范围", rid))
                     return 
                 end
                 
                 -- 记录玩家进入状态
                 if not Layer4Play2.play2EnteredPids[pid] then
                     Layer4Play2.play2EnteredPids[pid] = true
-                    print(string.format("[Layer4Play2] §2b: 玩家%d 英雄进入矩形%s 已记录", pid, rid))
                 end
                 
                 -- 检查是否所有玩家都已进入
                 if isAllUserHeroesEntered() then
-                    print(string.format("[Layer4Play2] §2b: 所有用户玩家英雄已进入 A/B，矩形%s触发 创建竖墙 1", rid))
                     Layer4Play2.createPlay2Wall1()
                 else
                     local active = getActiveUserPids()
@@ -238,12 +213,9 @@ function Layer4Play2.initMobSpawnRectListeners()
                     for _, apid in ipairs(active) do 
                         if Layer4Play2.play2EnteredPids[apid] then entered = entered + 1 end 
                     end
-                    print(string.format("[Layer4Play2] §2b: 等待所有玩家进入 A/B [%d/%d] rect=%s pid=%d", entered, #active, rid, pid))
                 end
             end)
-            if not ev then
-                print(string.format("[Layer4Play2] §2b: 矩形 A[%s] Event 创建失败", rid))
-            else
+            if ev then
                 Layer4Play2.rectListeners["A:" .. rid] = ev
                 -- 保留 Rect 和 Event 句柄防止 GC
                 Layer4Play2["__rectA_" .. rid] = r
@@ -251,8 +223,6 @@ function Layer4Play2.initMobSpawnRectListeners()
                 -- 保存到 _mobRectsA
                 table.insert(Layer4Play2._mobRectsA, r)
             end
-        else
-            print(string.format("[Layer4Play2] §2b: 矩形 A[%s] 创建失败，跳过监听", cfg.id or "?"))
         end
     end
     
@@ -260,7 +230,6 @@ function Layer4Play2.initMobSpawnRectListeners()
     for _, cfg in ipairs(Layer4Play2.mobSpawnRectsB) do
         local r = makeRectFromConfig(cfg)
         if r then
-            print(string.format("[Layer4Play2] §2b: 监听矩形 B[%s] %.1f,%.1f -> %.1f,%.1f", cfg.id, r:getMinX(), r:getMinY(), r:getMaxX(), r:getMaxY()))
             local rid = cfg.id
             local ev = Event:newRect(r, function(ev)
                 if Layer4Play2.finished then return end
@@ -268,45 +237,38 @@ function Layer4Play2.initMobSpawnRectListeners()
                 -- 修复：优先从 Event 对象获取单位，Event:newRect 回调中 ev._unit 已经设置
                 local u = ev._unit or cj.GetEnteringUnit()
                 if not u then 
-                    print(string.format("[Layer4Play2] §2b: 矩形 B[%s] 触发但无单位", rid))
                     return 
                 end
                 
                 -- 获取单位所有者
                 local okOwner, owner = pcall(Player.fromHandle, cj.GetOwningPlayer(u))
                 if not okOwner or not owner then 
-                    print(string.format("[Layer4Play2] §2b: 矩形 B[%s] 单位所有者获取失败", rid))
                     return 
                 end
                 
                 -- 检查是否是英雄单位
                 if not cj.IsUnitType(u, UNIT_TYPE_HERO) then 
-                    print(string.format("[Layer4Play2] §2b: 矩形 B[%s] 单位不是英雄", rid))
                     return 
                 end
                 
                 -- 检查是否是用户玩家
                 if not owner.isUser or not owner:isUser() then 
-                    print(string.format("[Layer4Play2] §2b: 矩形 B[%s] 玩家不是用户玩家", rid))
                     return 
                 end
                 
                 -- 检查玩家 ID 范围
                 local pid = owner:getId()
                 if pid < 0 or pid > 3 then 
-                    print(string.format("[Layer4Play2] §2b: 矩形 B[%s] 玩家 ID 超出范围", rid))
                     return 
                 end
                 
                 -- 记录玩家进入状态
                 if not Layer4Play2.play2EnteredPids[pid] then
                     Layer4Play2.play2EnteredPids[pid] = true
-                    print(string.format("[Layer4Play2] §2b: 玩家%d 英雄进入矩形%s 已记录", pid, rid))
                 end
                 
                 -- 检查是否所有玩家都已进入
                 if isAllUserHeroesEntered() then
-                    print(string.format("[Layer4Play2] §2b: 所有用户玩家英雄已进入 A/B，矩形%s触发 创建竖墙 1", rid))
                     Layer4Play2.createPlay2Wall1()
                 else
                     local active = getActiveUserPids()
@@ -314,32 +276,23 @@ function Layer4Play2.initMobSpawnRectListeners()
                     for _, apid in ipairs(active) do 
                         if Layer4Play2.play2EnteredPids[apid] then entered = entered + 1 end 
                     end
-                    print(string.format("[Layer4Play2] §2b: 等待所有玩家进入 A/B [%d/%d] rect=%s pid=%d", entered, #active, rid, pid))
                 end
             end)
-            if not ev then
-                print(string.format("[Layer4Play2] §2b: 矩形 B[%s] Event 创建失败", rid))
-            else
+            if ev then
                 Layer4Play2.rectListeners["B:" .. rid] = ev
                 Layer4Play2["__rectB_" .. rid] = r
                 Layer4Play2["__evB_" .. rid] = ev
                 -- 保存到 _mobRectsB
                 table.insert(Layer4Play2._mobRectsB, r)
             end
-        else
-            print(string.format("[Layer4Play2] §2b: 矩形 B[%s] 创建失败，跳过监听", cfg.id or "?"))
         end
     end
-    
-    print(string.format("[Layer4Play2] initMobSpawnRectListeners 完成。注册了%d个监听器", #Layer4Play2.rectListeners))
 end
 
 --|=============================================================
 --[§2b: 刷新矩形配置（给 generateRandomSpawnPos 使用）]
 --|=============================================================
 function Layer4Play2.refreshRects()
-    print("[Layer4Play2] refreshRects: 开始刷新矩形配置...")
-    
     -- 从已创建的矩形监听器中收集矩形
     local newRectsA = {}
     local newRectsB = {}
@@ -357,7 +310,6 @@ function Layer4Play2.refreshRects()
                     else
                         table.insert(newRectsB, rect)
                     end
-                    print(string.format("[Layer4Play2] refreshRects: 收集到矩形 %s[%s]", area, rid))
                 end
             end
         end
@@ -366,8 +318,6 @@ function Layer4Play2.refreshRects()
     -- 修复：给全局变量赋值（不加 local）
     Layer4Play2.play2RectsA = newRectsA or {}
     Layer4Play2.play2RectsB = newRectsB or {}
-    
-    print(string.format("[Layer4Play2] refreshRects 完成：play2RectsA=%d 个，play2RectsB=%d 个", #Layer4Play2.play2RectsA, #Layer4Play2.play2RectsB))
 end
 
 --|=============================================================
@@ -409,10 +359,10 @@ Layer4Play2.play1Config = {
 --[§2a: 玩法 1 Boss 创建/销毁（兼容 Layer4）]
 --|=============================================================
 function Layer4Play2.createPlay1Boss()
-    if Layer4Play2.play1Unit then print("[Layer4Play2] §2a: 玩法 1 怪物已存在") return end
+    if Layer4Play2.play1Unit then return end
     
     local p = Player:new(4)
-    if not p then print("[Layer4Play2] §2a: Player 4 nil") return end
+    if not p then return end
     local u = Unit:new(p, Layer4Play2.play1Config.unitId, Layer4Play2.play1Config.pos.x, Layer4Play2.play1Config.pos.y, Layer4Play2.play1Config.facing)
     if not u or not u._handle then return end
     local maValue = Layer4Play2.play1Config.magic or 2000
@@ -426,7 +376,6 @@ end
 function Layer4Play2.destroyPlay1Boss()
     if not Layer4Play2.play1Unit then return end
     pcall(function() Layer4Play2.play1Unit:destroy() end)
-    print("[Layer4Play2] §2a: 玩法 1 怪物已销毁")
     Layer4Play2.play1Unit = nil
 end
 
@@ -438,17 +387,13 @@ end
 function Layer4Play2.startMobSpawnerTimer()
     if Layer4Play2.play2MobTimer then return end
     if not Layer4Play2.play2Triggered then
-        print("[Layer4Play2] §2b: 警告：尝试启动计时器但玩法 2 未触发")
         return
     end
-    print("[Layer4Play2] §2b: 启动刷怪计时器...")
     Layer4Play2.play2MobTimer = Timer:new(1.5, true, function()
         if not Layer4Play2.play2Triggered or Layer4Play2.finished then return end
-        print("[Layer4Play2] §2b: 计时器触发，开始刷怪...")
         Layer4Play2.spawnOneMob()
     end)
     Layer4Play2.play2MobTimer:start()
-    print("[Layer4Play2] 刷怪计时器已启动 (1.5 秒/次)")
 end
 
 -- 停止刷怪计时器
@@ -456,7 +401,6 @@ function Layer4Play2.stopMobSpawnerTimer()
     if Layer4Play2.play2MobTimer then
         pcall(function() Layer4Play2.play2MobTimer:stop() end)
         Layer4Play2.play2MobTimer = nil
-        print("[Layer4Play2] 刷怪计时器已停止")
     end
 end
 
@@ -486,31 +430,23 @@ function Layer4Play2.generateRandomSpawnPos()
         for i = 1, #Layer4Play2._rawRectsB do allRects[#allRects + 1] = Layer4Play2._rawRectsB[i] end
     end
     if #allRects == 0 then 
-        print("[Layer4Play2] §2b: generateRandomSpawnPos 警告：没有可用的矩形配置")
         return nil 
     end
     local rect = allRects[math.random(1, #allRects)]
-    -- 调试：打印 rect 对象的字段
-    print(string.format("[Layer4Play2] §2b: generateRandomSpawnPos 选择的矩形：id=%s cx=%s cy=%s width=%s height=%s", rect.id, rect.cx, rect.cy, rect.width, rect.height))
     
-    -- 调试：打印计算过程
     local halfWidth = rect.width / 2
     local halfHeight = rect.height / 2
-    print(string.format("[Layer4Play2] §2b: halfWidth=%s halfHeight=%s", halfWidth, halfHeight))
     
     local minx = rect.cx - halfWidth
     local miny = rect.cy - halfHeight
     local maxx = rect.cx + halfWidth
     local maxy = rect.cy + halfHeight
-    print(string.format("[Layer4Play2] §2b: minx=%s miny=%s maxx=%s maxy=%s", minx, miny, maxx, maxy))
     
     local r1 = math.random(1, 100)
     local r2 = math.random(1, 100)
-    print(string.format("[Layer4Play2] §2b: math.random() 测试：r1=%s r2=%s", r1, r2))
     
     local x = minx + r1 * (maxx - minx) / 100.0
     local y = miny + r2 * (maxy - miny) / 100.0
-    print(string.format("[Layer4Play2] §2b: 计算坐标：x=%s y=%s", x, y))
     
     return { x = x, y = y, rect = rect }
 end
@@ -538,7 +474,6 @@ function Layer4Play2.spawnOneMob()
     end
     
     if not bestPlayer then
-        print("[Layer4Play2] §2b: 没有可用的敌方玩家")
         return
     end
     
@@ -551,7 +486,6 @@ function Layer4Play2.spawnOneMob()
     
     -- 每个玩家最多 10 个，总共 7 个玩家 = 70 个上限
     if totalAlive >= 70 then
-        print(string.format("[Layer4Play2] §2b: 达到上限 %d/70，暂停刷怪", totalAlive))
         -- 首次达到上限时，给每个玩家刷一个怪
         Layer4Play2.bonusSpawnOnCap()
         return
@@ -562,7 +496,6 @@ function Layer4Play2.spawnOneMob()
     for attempt = 1, maxAttempts do
         local spawnPos = Layer4Play2.generateRandomSpawnPos()
         if not spawnPos then
-            print(string.format("[Layer4Play2] §2b: 第 %d 次尝试生成刷怪位置失败，跳过", attempt))
             -- 如果所有尝试都失败，直接返回
             if attempt == maxAttempts then
                 return
@@ -597,9 +530,8 @@ function Layer4Play2.spawnOneMob()
             break
         end
         
-        -- 尝试次数过多，打印警告
+        -- 尝试次数过多
         if attempt == maxAttempts then
-            print(string.format("[Layer4Play2] §2b: 尝试 %d 次后仍未找到安全的刷怪位置，跳过刷怪", maxAttempts))
             return
         end
         ::continue_loop::
@@ -608,14 +540,12 @@ function Layer4Play2.spawnOneMob()
     -- 获取可用的怪物 ID
     local mobId = Layer4Play2.getRandomMobId()
     if not mobId then
-        print("[Layer4Play2] §2b: 没有可用的怪物 ID")
         return
     end
     
     -- 检查位置高度，大于 1 不创建
     local height = cdz.DzGetTerrainZ(x, y) or 0
     if height > 1 then
-        print(string.format("[Layer4Play2] §2b: 位置 %.1f,%.1f 高度 %.1f > 1，跳过创建", x, y, height))
         return
     end
     
@@ -624,11 +554,6 @@ function Layer4Play2.spawnOneMob()
     if u and u._handle then
         -- 添加到句柄列表，用于死亡监听
         table.insert(Layer4Play2.play2MobHandles, u._handle)
-        print(string.format("[Layer4Play2] §2b: 在 %.1f,%.1f 创建怪物 %s 给玩家%d", x, y, mobId, bestPlayer:getId()))
-        print(string.format("[Layer4Play2] §2b: 当前刷怪存活数：%d / 上限：70", totalAlive + 1))
-     
-    else
-        print(string.format("[Layer4Play2] §2b: 创建怪物失败 %s", mobId))
     end
 end
 
@@ -651,11 +576,9 @@ end
 function Layer4Play2.bonusSpawnOnCap()
     -- 防止重复触发
     if Layer4Play2.play2HasBonus then
-        print("[Layer4Play2] §2b: 已经触发过首次上限奖励，跳过")
         return
     end
     
-    print("[Layer4Play2] §2b: 首次达到上限，触发奖励刷怪...")
     Layer4Play2.play2HasBonus = true
     
     -- 给每个玩家刷一个怪
@@ -670,7 +593,6 @@ function Layer4Play2.bonusSpawnOnCap()
                 Layer4.canSpawnMob = function() return true end -- 临时允许
                 local spawnPos = Layer4Play2.generateRandomSpawnPos()
                 if not spawnPos then
-                    print(string.format("[Layer4Play2] §2b: 奖励刷怪位置生成失败，跳过"))
                     Layer4.canSpawnMob = originalCanSpawn
                     return
                 end
@@ -678,11 +600,8 @@ function Layer4Play2.bonusSpawnOnCap()
                 Layer4.canSpawnMob = originalCanSpawn -- 恢复
                 if u and u._handle then
                     table.insert(Layer4Play2.play2MobHandles, u._handle)
-                    print(string.format("[Layer4Play2] §2b: 奖励刷怪：玩家%d 获得怪物 %s", pid, Layer4Play2.getRandomMobId()))
                     -- 记录该玩家已获得 bonus
                     Layer4Play2.play2BonusSpawns[pid] = true
-                else
-                    print(string.format("[Layer4Play2] §2b: 奖励刷怪失败：玩家%d", pid))
                 end
             end
         end
@@ -731,7 +650,6 @@ end
 -- 注册死亡监听
 function Layer4Play2.ensureMobDeathListener()
     if Layer4Play2.mobDeathListener then return end
-    print("[Layer4Play2] §2b: 注册刷怪死亡监听...")
     Layer4Play2.mobDeathListener = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
         if Layer4Play2.finished then return end
         local handle = ev.unit
@@ -763,11 +681,11 @@ function Layer4Play2.hasUnitKey(uHandle)
 end
 
 function Layer4Play2.tryDropKeyAt(x, y)
-    -- 注：当前代码只有钥匙掉落（1% 概率），无旗子掉落逻辑
+    -- 注：当前代码只有钥匙掉落（5% 概率），无旗子掉落逻辑
     -- 如需添加旗子掉落，请在 tryDropKeyAt 中额外添加 tryDropFlagAt 函数调用
     if Layer4Play2.play2KeyConfig.finished then return end
     if not x or not y then return end
-    local chance = Layer4Play2.play2KeyConfig.dropChance or 0.01 -- 1% 掉落概率
+    local chance = Layer4Play2.play2KeyConfig.dropChance or 0.05 -- 5% 掉落概率
     if cj.I2R(math.random(1, 100)) / 100 >= chance then return end
     local itemIdStr = Layer4Play2.play2KeyConfig.itemId
     local ok, it = pcall(function() return Item:new(itemIdStr, x, y) end)
@@ -776,11 +694,9 @@ function Layer4Play2.tryDropKeyAt(x, y)
         local iid = c2i(itemIdStr)
         if iid and iid ~= 0 then
             local h = cj.CreateItem(iid, x, y)
-            if h then print(string.format("[Layer4Play2] §2b-KEY: 钥匙掉落 (原生) %s at %.1f,%.1f", itemIdStr, x, y)) end
         end
         return
     end
-    print(string.format("[Layer4Play2] §2b-KEY: 钥匙掉落 %s at %.1f,%.1f", itemIdStr, x, y))
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", "钥匙已掉落！拾取后前往横墙 2 开门通关！", SystemMessage.COLOR_WARN}}, 3.0)
     end
@@ -808,7 +724,6 @@ function Layer4Play2.onPlay2DoorOpen(heroHandle, itemHandle)
         pcall(cj.RemoveDestructable, h)
         Layer4.wallMap[wallIdx] = nil
         for i, handle in ipairs(Layer4.handles) do if handle == h then table.remove(Layer4.handles, i) break end end
-        print("[Layer4Play2] §2b-KEY: 横墙 2 已开启销毁 (钥匙开门)")
     elseif wallCfg then
         local rect = cj.Rect(wallCfg.x - 96, wallCfg.y - 96, wallCfg.x + 96, wallCfg.y + 96)
         if rect then
@@ -824,7 +739,6 @@ function Layer4Play2.onPlay2DoorOpen(heroHandle, itemHandle)
                 end)
             end)
             cj.RemoveRect(rect)
-            print("[Layer4Play2] §2b-KEY: 横墙 2 兜底枚举销毁")
         end
     end
     if SystemMessage and SystemMessage.send then
@@ -845,7 +759,6 @@ function Layer4Play2.onPlay2DoorOpen(heroHandle, itemHandle)
     -- 玩法 2 通关：停止刷怪计时器、清理剩余单位（刷怪单位属于玩法 2 内容）
     Layer4Play2.stopMobSpawnerTimer()
     if #Layer4Play2.play2MobHandles > 0 then
-        print(string.format("[Layer4Play2] §2b: 玩法 2 通关，销毁 %d 个剩余刷怪单位", #Layer4Play2.play2MobHandles))
         for _, h in ipairs(Layer4Play2.play2MobHandles) do
             if h then pcall(function() Unit.fromHandle(h):destroy() end) end
         end
@@ -853,7 +766,22 @@ function Layer4Play2.onPlay2DoorOpen(heroHandle, itemHandle)
     end
     -- 清理刷怪区监听
     Layer4Play2.destroyMobSpawnRectListeners()
-    print("[Layer4Play2] §2b-KEY: 玩法 2 通关完成（已清理刷怪内容）")
+    -- 清理死亡监听
+    if Layer4Play2.mobDeathListener then
+        pcall(function() Layer4Play2.mobDeathListener:destroy() end)
+        Layer4Play2.mobDeathListener = nil
+    end
+    -- 销毁竖墙 1（玩法 2 内容）
+    if Layer4Play2.play2WallHandle then
+        pcall(function() cj.RemoveDestructable(Layer4Play2.play2WallHandle) end)
+        Layer4Play2.play2WallHandle = nil
+    end
+    Layer4Play2.play2Triggered = false
+    Layer4Play2.play2EnteredPids = {}
+    -- 激活玩法 3
+    if Layer4Play3 then
+        Layer4Play3.start()
+    end
 end
 
 function Layer4Play2.createPlay2KeyDoor()
@@ -864,14 +792,12 @@ function Layer4Play2.createPlay2KeyDoor()
     
     local wall = nil
     for _, w in ipairs(Layer4.walls) do if w.index == Layer4Play2.play2KeyConfig.doorWallIndex then wall = w break end end
-    if not wall then print("[Layer4Play2] §2b-KEY: 横墙 2 配置缺失") return end
+    if not wall then return end
     local w, h = Layer4Play2.play2KeyConfig.doorSize.w, Layer4Play2.play2KeyConfig.doorSize.h
     local r = Rect:newCenter(wall.x, wall.y, w, h)
-    if not r or not r._handle then print("[Layer4Play2] §2b-KEY: 门区域创建失败") return end
+    if not r or not r._handle then return end
     Layer4Play2.play2DoorRect = r
-    print(string.format("[Layer4Play2] §2b-KEY: 通关门检测区域已创建 横墙 2 %.1f,%.1f 范围 %.0fx%.0f", wall.x, wall.y, w, h))
     Layer4Play2.play2DoorEvent = Event:newRect(r, function(ev)
-        print(string.format("[Layer4Play2] §2b-KEY: 通关门检测区域触发事件 %s", ev.type))
         if Layer4Play2.finished or Layer4Play2.play2KeyConfig.finished then return end
         local u = ev.unit or ev._unit or cj.GetEnteringUnit()
         if not u then return end
@@ -882,7 +808,6 @@ function Layer4Play2.createPlay2KeyDoor()
         if pid < 0 or pid > 3 then return end
         local has = Layer4Play2.hasUnitKey(u)
         if not has then return end
-        print(string.format("[Layer4Play2] §2b-KEY: 玩家%d 携带钥匙靠近横墙 2，开门", pid))
         Layer4Play2.onPlay2DoorOpen(u, select(2, Layer4Play2.hasUnitKey(u)))
     end)
 end
@@ -906,7 +831,6 @@ local function onKeyPickup(ev)
     local owner = Player.fromHandle(cj.GetOwningPlayer(hero))
     local pname = owner and owner:getName() or "未知"
     if not pname or pname == "" then pname = string.format("玩家%d", owner and owner:getId() or 0) end
-    print(string.format("[Layer4Play2] §2b-KEY: %s 拾取钥匙 %s", pname, Layer4Play2.play2KeyConfig.itemId))
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", string.format("%s 获得了钥匙！前往横墙 2 (-1289,3844) 开门通关！", pname), SystemMessage.COLOR_SUCCESS}}, 5.0)
     end
@@ -916,9 +840,8 @@ function Layer4Play2.ensurePlay2KeyListeners()
     if Layer4Play2.play2KeyPickupEvent then return end
     Layer4Play2.createPlay2KeyDoor()
     local keyId = c2i(Layer4Play2.play2KeyConfig.itemId)
-    if not keyId or keyId == 0 then print("[Layer4Play2] §2b-KEY: ao8y 的 c2i 转换失败") return end
+    if not keyId or keyId == 0 then return end
     Layer4Play2.play2KeyPickupEvent = Event:new(nil, EVENT_PLAYER_UNIT_PICKUP_ITEM, onKeyPickup)
-    print("[Layer4Play2] §2b-KEY: 钥匙拾取监听已注册 ao8y 横墙 2 为通关门")
 end
 
 function Layer4Play2.destroyPlay2KeyListeners()
@@ -933,7 +856,7 @@ end
 --[§2 生命周期]
 --|=============================================================
 function Layer4Play2.start()
-    if Layer4Play2.started then print("[Layer4Play2] 已启动跳过") return end
+    if Layer4Play2.started then return end
     Layer4Play2.started = true
     Layer4Play2.finished = false
     Layer4Play2.play2Triggered = false
@@ -945,23 +868,9 @@ function Layer4Play2.start()
     Layer4Play2.play2HasBonus = false
     Layer4Play2.play2KeyConfig.finished = false
     
-    print("[Layer4Play2] start() 开始初始化...")
-
-
     -- 矩形配置已提取到文件顶部 Layer4Play2.mobSpawnRectsCfgA/B（全文件共享）
-    print(string.format("[Layer4Play2] 关卡 4 玩法 2 矩形配置：A 区%d个，B 区%d个",
-        #Layer4Play2.mobSpawnRectsCfgA, #Layer4Play2.mobSpawnRectsCfgB))
-    for _, cfg in ipairs(Layer4Play2.mobSpawnRectsCfgA) do
-        print(string.format("  A[%s]: %.1f,%.1f -> %.1f,%.1f", cfg.id, cfg.cx - cfg.width/2, cfg.cy - cfg.height/2, cfg.cx + cfg.width/2, cfg.cy + cfg.height/2))
-    end
-    for _, cfg in ipairs(Layer4Play2.mobSpawnRectsCfgB) do
-        print(string.format("  B[%s]: %.1f,%.1f -> %.1f,%.1f", cfg.id, cfg.cx - cfg.width/2, cfg.cy - cfg.height/2, cfg.cx + cfg.width/2, cfg.cy + cfg.height/2))
-    end
-
     Layer4Play2.initMobSpawnRectListeners()
     Layer4Play2.ensureMobDeathListener()
-    
-    print("[Layer4Play2] 玩法 2 初始化完成")
 end
 
 function Layer4Play2.shutdown()
@@ -976,13 +885,11 @@ function Layer4Play2.shutdown()
     -- 停止刷怪计时器
     if Layer4Play2.play2MobTimer then
         Layer4Play2.play2MobTimer:stop()
-        print("[Layer4Play2] 停止刷怪计时器")
         Layer4Play2.play2MobTimer = nil
     end
     
     -- 销毁所有刷怪单位
     if #Layer4Play2.play2MobHandles > 0 then
-        print(string.format("[Layer4Play2] §2b: 销毁 %d 个刷怪单位", #Layer4Play2.play2MobHandles))
         for _, h in ipairs(Layer4Play2.play2MobHandles) do
             if h then pcall(function() Unit.fromHandle(h):destroy() end) end
         end
@@ -991,7 +898,6 @@ function Layer4Play2.shutdown()
     
     if Layer4Play2.play2WallHandle then
         pcall(function() cj.RemoveDestructable(Layer4Play2.play2WallHandle) end)
-        print("[Layer4Play2] 清理竖墙 1")
         Layer4Play2.play2WallHandle = nil
     end
     
@@ -1006,8 +912,6 @@ function Layer4Play2.shutdown()
         pcall(function() Layer4Play2.mobDeathListener:destroy() end)
         Layer4Play2.mobDeathListener = nil
     end
-    
-    print("[Layer4Play2] 关闭")
 end
 
 --|=============================================================

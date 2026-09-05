@@ -61,39 +61,26 @@ Layer4.deathListener = nil
 --|=============================================================
 local function createOne(w)
     if not w or not w.x or not w.y or not w.id then
-        print(string.format("[Layer4] createOne: nil params w=%s", tostring(w and w.name or w)))
         return nil
     end
     local face = w.face or (w.dir == "H" and 270 or 0)
     local typeId = c2i(w.id) or 0
     local x, y = tonumber(w.x), tonumber(w.y)
     if not x or not y then
-        print(string.format("[Layer4] createOne: bad coords id=%s", tostring(w.id)))
         return nil
     end
     local h = cj.CreateDestructable(typeId, x, y, face, 1, 0)
-    if h then
-        print(string.format("[Layer4] createOne: %s at %.1f,%.1f ok", w.name or w.id, x, y))
-    else
-        print(string.format("[Layer4] createOne FAILED: %s id=%s at %.1f,%.1f", w.name or "?", tostring(w.id), x, y))
-    end
     return h
 end
 
 function Layer4.createWalls()
     if Layer4.createDone then return end
-    print("[Layer4] §1b: 开始创建墙体（跳过 index 4/6）...")
     for _, w in ipairs(Layer4.walls) do
-        if w.index == 4 or w.index == 6 then
-            print(string.format("  ⊘ %s(index=%d) 跳过创建 (关卡 4 默认不创建)", w.name, w.index))
-        else
+        if w.index ~= 4 and w.index ~= 6 then
             local h = createOne(w)
             if h then
                 table.insert(Layer4.handles, h)
                 Layer4.wallMap[w.index] = h
-                print(string.format("  ✓ %s: %.1f,%.1f (%s)", w.name, w.x, w.y, w.dir))
-            else
-                print(string.format("  ✗ %s 创建失败", w.name))
             end
         end
     end
@@ -102,7 +89,6 @@ end
 
 function Layer4.destroyWalls()
     if not Layer4.createDone and #Layer4.handles == 0 and not next(Layer4.wallMap) then return end
-    print("[Layer4] §1b: 销毁所有墙体...")
     for _, h in ipairs(Layer4.handles) do
         if h then pcall(function() cj.RemoveDestructable(h) end) end
     end
@@ -128,10 +114,10 @@ Layer4.play1Config = {
 --|=============================================================\
 
 function Layer4.createPlay1Boss()
-    if Layer4.play1Unit then print("[Layer4] §2a: 玩法 1 怪物已存在") return end
+    if Layer4.play1Unit then return end
 
     local p = Player:new(4)
-    if not p then print("[Layer4] §2a: Player 4 nil") return end
+    if not p then return end
     local u = Unit:new(p, Layer4.play1Config.unitId, Layer4.play1Config.pos.x, Layer4.play1Config.pos.y, Layer4.play1Config.facing)
     if not u or not u._handle then return end
     local maValue = Layer4.play1Config.magic or 2000  -- 每千点=+100% 魔伤增幅
@@ -145,7 +131,6 @@ end
 function Layer4.destroyPlay1Boss()
     if not Layer4.play1Unit then return end
     pcall(function() Layer4.play1Unit:destroy() end)
-    print("[Layer4] §2a: 玩法 1 怪物已销毁")
     Layer4.play1Unit = nil
 end
 
@@ -156,7 +141,6 @@ Layer4.play1Triggered = false
 --|=============================================================
 function Layer4.ensureDeathListener()
     if Layer4.deathListener then return end
-    print("[Layer4] §2a: 注册死亡监听...")
     Layer4.deathListener = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
         if Layer4.finished then return end
         local dyingHandle = ev.unit
@@ -166,21 +150,17 @@ function Layer4.ensureDeathListener()
         local okCode, typeCode = pcall(dyingUnit.getTypeCode, dyingUnit)
         if not okCode or typeCode ~= Layer4.play1Config.unitId then return end
         if not Layer4.play1Unit then return end
-        print(string.format("[Layer4] ✓ 玩法 1 BOSS 死亡 type=%s", tostring(typeCode)))
-        if Layer4.play1Triggered then print("[Layer4] 已触发过跳过") return end
+        if Layer4.play1Triggered then return end
         Layer4.play1Triggered = true
         local h = Layer4.wallMap[1]
         if not h then 
-            print("[Layer4] 横墙 1 handle 缺失，但不销毁监听器以便重试")
             -- 不销毁监听器，保持存活以便后续可能重新创建横墙
             return 
         end
         local wallCfg = Layer4.walls[1]
-        print(string.format("[Layer4] 销毁横墙 1 at %.1f,%.1f", wallCfg.x, wallCfg.y))
         pcall(function() cj.RemoveDestructable(h) end)
         for i, handle in ipairs(Layer4.handles) do if handle == h then table.remove(Layer4.handles, i) break end end
         Layer4.wallMap[1] = nil
-        print("[Layer4] 横墙 1 已销毁")
         if SystemMessage and SystemMessage.send then
             SystemMessage.send({{"STR", "玩法 1 通关！横墙 1 已摧毁！", SystemMessage.COLOR_SUCCESS}}, 5.0)
         else
@@ -220,10 +200,10 @@ Layer4.play4Unit      = nil
 --[§2d: 玩法 4 BOSS 创建/销毁]
 --|=============================================================
 function Layer4.createPlay4Boss()
-    if Layer4.play4Unit then print("[Layer4] §2d: 玩法 4 BOSS 已存在") return end
+    if Layer4.play4Unit then return end
 
     local p = Player:new(4)
-    if not p then print("[Layer4] §2d: Player 4 nil") return end
+    if not p then return end
     local u = Unit:new(p, Layer4.play4Config.unitId, Layer4.play4Config.pos.x, Layer4.play4Config.pos.y, Layer4.play4Config.facing)
     if not u or not u._handle then return end
 
@@ -236,7 +216,6 @@ end
 function Layer4.destroyPlay4Boss()
     if not Layer4.play4Unit then return end
     pcall(function() Layer4.play4Unit:destroy() end)
-    print("[Layer4] §2d: 玩法 4 BOSS 已销毁")
     Layer4.play4Unit = nil
 end
 
@@ -251,10 +230,15 @@ end
 --|=============================================================
 
 --|=============================================================
+--[§2e: 玩法 4 Boss 死亡监听（在 Layer4Play4 中处理）
+-- 用法：require("Layers.Layer4Play4")
+--|=============================================================
+
+--|=============================================================
 --[§2 生命周期]
 --|=============================================================
 function Layer4.start()
-    if Layer4.started then print("[Layer4] 已启动跳过") return end
+    if Layer4.started then return end
     Layer4.started = true
     Layer4.finished = false
     Layer4.play1Triggered = false
@@ -263,11 +247,7 @@ function Layer4.start()
     -- 初始化 mobSpawnRectsA（从 Layer3 复制，避免 nil 错误）
     if Layer3 and Layer3.mobSpawnRects then
         Layer4.mobSpawnRectsA = Layer3.mobSpawnRects
-        print(string.format("[Layer4] 初始化 mobSpawnRectsA: %d 个矩形", #Layer4.mobSpawnRectsA))
-    else
-        print("[Layer4] Layer3.mobSpawnRects 未加载，使用空表")
     end
-    print(string.format("[Layer4] 启动 %.1f,%.1f", Layer4.entryPos.x, Layer4.entryPos.y))
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", "关卡 4 已启动", SystemMessage.COLOR_SUCCESS}}, 3.0)
     else
@@ -277,18 +257,13 @@ function Layer4.start()
     if not Layer4.play1Unit then Layer4.createPlay1Boss() end
     -- 初始化玩法 2 监听器（玩家进入 A/B 区域触发）
     if Layer4Play2 then
-        print("[Layer4] 调用 Layer4Play2.start()...")
         Layer4Play2.start()
-    else
-        print("[Layer4] 警告：Layer4Play2 未加载！")
     end
     -- Layer4Play2.initMobSpawnRectListeners(Layer4.mobSpawnRectsA, Layer4.mobSpawnRectsB)
     Layer4.ensureDeathListener()
     Layer4.ensureMobDeathListener()
     Layer4.ensurePlay2KeyListeners() -- 兼容调用，实际在 Layer4Play2 中实现
-    -- 创建 play3 新区域并注册死亡事件（已在 main.lua 加载）
-    Layer4Play3.initPlay3NewRegion()
-    Layer4Play3.initPlay3NewRegionDeathListener()
+    -- 玩法 3 由玩法 2 开门后激活（见 Layer4Play2.onPlay2DoorOpen）
 end
 
 function Layer4.shutdown()
@@ -296,7 +271,6 @@ function Layer4.shutdown()
         -- 允许重复调用清理
     end
     Layer4.started = false
-    print("[Layer4] 关闭")
     Layer4.destroyPlay1Boss()
     -- 停止刷怪计时器（已在 Layer4Play2.shutdown 中处理）
     -- if Layer4.play2MobTimer then
@@ -325,15 +299,13 @@ function Layer4.shutdown()
     Layer4.play1Triggered = false
     -- 清理钥匙玩法监听/门区域（已在 Layer4Play2.shutdown 中处理）
     -- Layer4.destroyPlay2KeyListeners()
-    -- -- 清理 play3 新区域（已在 main.lua 加载）
-    Layer4Play3.destroyPlay3NewRegion()
-    -- -- 清理 play3 新区域死亡监听
-    Layer4Play3.destroyPlay3NewRegionDeathListener()
+    -- -- 清理 play3（完整 shutdown，包括 BOSS 清理与监听）
+    if Layer4Play3 then
+        Layer4Play3.shutdown()
+    end
     -- -- 清理玩法 2（已在 Layer4Play2.shutdown 中处理）
     if Layer4Play2 then
         Layer4Play2.shutdown()
-    else
-        print("[Layer4] 警告：Layer4Play2 未加载，跳过清理")
     end
     -- -- 死亡监听不随关卡销毁（复用时 ensure 会重建），但此处清理 deathListener 便于热重载
     if Layer4.deathListener then pcall(function() Layer4.deathListener:destroy() end) Layer4.deathListener=nil end
@@ -424,7 +396,6 @@ end
 -- 注册死亡监听
 function Layer4.ensureMobDeathListener()
     if Layer4.mobDeathListener then return end
-    print("[Layer4] §2b: 注册刷怪死亡监听...")
     Layer4.mobDeathListener = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
         if Layer4.finished then return end
         local handle = ev.unit
@@ -478,7 +449,6 @@ local function onKeyPickup(ev)
     local owner = Player.fromHandle(cj.GetOwningPlayer(hero))
     local pname = owner and owner:getName() or "未知"
     if not pname or pname == "" then pname = string.format("玩家%d", owner and owner:getId() or 0) end
-    print(string.format("[Layer4] §2b-KEY: %s 拾取钥匙 %s", pname, Layer4Play2.play2KeyConfig.itemId))
     if SystemMessage and SystemMessage.send then
         SystemMessage.send({{"STR", string.format("%s 获得了钥匙！前往横墙 2 (-1289,3844) 开门通关！", pname), SystemMessage.COLOR_SUCCESS}}, 5.0)
     end
@@ -488,9 +458,8 @@ function Layer4.ensurePlay2KeyListeners()
     if Layer4.play2KeyPickupEvent then return end
     Layer4.createPlay2KeyDoor()
     local keyId = c2i(Layer4Play2.play2KeyConfig.itemId)
-    if not keyId or keyId == 0 then print("[Layer4] §2b-KEY: ao8y 的 c2i 转换失败") return end
+    if not keyId or keyId == 0 then return end
     Layer4.play2KeyPickupEvent = Event:new(nil, EVENT_PLAYER_UNIT_PICKUP_ITEM, onKeyPickup)
-    print("[Layer4] §2b-KEY: 钥匙拾取监听已注册 ao8y 横墙 2 为通关门")
 end
 
 function Layer4.destroyPlay2KeyListeners()
