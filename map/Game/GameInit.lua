@@ -265,9 +265,34 @@ function GameInit.registerReviveEvent()
         end
     end
     
-    -- 在关卡 3 激活时不注册死亡事件（由 Layer3.onAllPlayersDied 接管）
-    if isLayer3Active then
-        print("[GameInit] 跳过死亡事件注册，由 Layer3 处理")
+    -- 检查是否处于关卡 4 玩法 2 或玩法 4 中，禁用自动复活
+    local isLayer4Play2Or4Active = false
+    if GameInit and GameInit.currentLayer == 4 then
+        local Layer4Module = nil
+        pcall(function() Layer4Module = require("Game.Layers.Layer4") end)
+        if Layer4Module and Layer4Module.started then
+            local Layer4Play2Module = nil
+            pcall(function() Layer4Play2Module = require("Game.Layers.Layer4Play2") end)
+            if Layer4Play2Module and Layer4Play2Module.started then
+                -- 玩法 2 激活中
+                isLayer4Play2Or4Active = true
+                print("[GameInit] 检测到关卡 4 玩法 2 激活中，禁用英雄自动复活功能")
+            end
+            if Layer4Module then
+                local Layer4Play4Module = nil
+                pcall(function() Layer4Play4Module = require("Game.Layers.Layer4Play4") end)
+                if Layer4Play4Module and Layer4Play4Module.bossActivated then
+                    -- 玩法 4 Boss 战激活中
+                    isLayer4Play2Or4Active = true
+                    print("[GameInit] 检测到关卡 4 玩法 4 Boss 战激活中，禁用英雄自动复活功能")
+                end
+            end
+        end
+    end
+    
+    -- 在关卡 3 或玩法 2/4 激活时不注册死亡事件（由关卡失败处理接管）
+    if isLayer3Active or isLayer4Play2Or4Active then
+        print("[GameInit] 跳过死亡事件注册，由关卡处理")
         return
     end
     

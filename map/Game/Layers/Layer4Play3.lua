@@ -109,25 +109,79 @@ end
 --[§2d: 监听区域内可破坏物死亡]
 --|=============================================================
 function Layer4Play3.initPlay3NewRegionDeathListener()
-    if Layer4Play3.play3DeathTrigger then return end
-    Layer4Play3.play3DeathTrigger = Destroyable.EnumDestructablesInRect(Layer4Play3.play3NewRegionRect, function(d)
-        local d = Destroyable.fromHandle(cj.GetTriggerDestructable())
-        local x, y = d:getX(), d:getY()
-        local cfg = Layer4Play3.play3Config
-        local r = math.random(1, 100)
-        if r <= cfg.bossChance then
-            Layer4Play3.spawnMonster(x, y, true)   -- 隐藏BOSS
-        elseif r <= cfg.bossChance + cfg.spawnChance then
-            Layer4Play3.spawnMonster(x, y, false)  -- 普通怪
+    if Layer4Play3.play3DeathListener then return end
+
+    -- 使用 Rect OOP 类创建矩形区域
+    local cfg = Layer4Play3.play3NewRegion
+    local rect = Rect:new(cfg.minx, cfg.miny, cfg.maxx, cfg.maxy)
+    if not rect then return end
+
+    -- 使用 Destroyable OOP 方法枚举区域内可破坏物
+    local destructibles = Destroyable.EnumDestructablesInRect(rect)
+    if #destructibles == 0 then
+        print("[Layer4Play3] §2d-DEATH: 区域内无可破坏物，未注册死亡监听")
+        return
+    end
+
+    -- 使用 Destroyable OOP 方法批量注册死亡事件
+    local trig = cj.CreateTrigger()
+    local events = {}
+    local registered = 0
+
+    for _, d in ipairs(destructibles) do
+        if Destroyable.isValid(d) then
+            local ev = d:registerDeathEvent(trig)
+            if ev then
+                events[d] = ev
+                registered = registered + 1
+            end
         end
-    end)
-    print("[Layer4Play3] §2d-DEATH: play3 新区域死亡可破坏物监听已注册")
+    end
+
+    if registered > 0 then
+        cj.TriggerAddAction(trig, function()
+            local handle = cj.GetTriggerDestructable()
+            if handle == nil then return end
+            local d = Destroyable.fromHandle(handle)
+            if not d then return end
+            local x, y = d:getX(), d:getY()
+            local cfg = Layer4Play3.play3Config
+            local r = math.random(1, 100)
+            if r <= cfg.bossChance then
+                Layer4Play3.spawnMonster(x, y, true)   -- 隐藏BOSS
+            elseif r <= cfg.bossChance + cfg.spawnChance then
+                Layer4Play3.spawnMonster(x, y, false)  -- 普通怪
+            end
+        end)
+
+        Layer4Play3.play3DeathListener = {
+            trigger = trig,
+            events = events,
+            count = registered,
+        }
+        print(string.format("[Layer4Play3] §2d-DEATH: play3 新区域死亡可破坏物监听已注册（%d个）", registered))
+    else
+        cj.DestroyTrigger(trig)
+        print("[Layer4Play3] §2d-DEATH: 区域内无可注册死亡事件的可破坏物")
+    end
 end
 
 function Layer4Play3.destroyPlay3NewRegionDeathListener()
-    if play3DeathTrigger then
-        pcall(function() play3DeathTrigger:destroy() end)
-        play3DeathTrigger = nil
+    if Layer4Play3.play3DeathListener then
+        -- 批量取消死亡事件注册
+        local listener = Layer4Play3.play3DeathListener
+        if listener.events then
+            local destructibles = {}
+            local trigs = {}
+            for d, ev in pairs(listener.events) do
+                table.insert(destructibles, d)
+                table.insert(trigs, listener.trigger)
+            end
+            Destroyable.batchUnregisterDeathEvent(destructibles, trigs)
+        end
+        -- 销毁触发器
+        pcall(function() cj.DestroyTrigger(listener.trigger) end)
+        Layer4Play3.play3DeathListener = nil
     end
 end
 

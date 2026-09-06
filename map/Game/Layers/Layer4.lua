@@ -219,20 +219,7 @@ function Layer4.destroyPlay4Boss()
     Layer4.play4Unit = nil
 end
 
---|=============================================================
---[§2c: 玩法 3 已分离至 Layer4Play3.lua]
--- 用法：require("Layers.Layer4Play3")
---|=============================================================
 
---|=============================================================
---[§2d: 玩法 4 已分离至 Layer4Play4.lua]
--- 用法：require("Layers.Layer4Play4")
---|=============================================================
-
---|=============================================================
---[§2e: 玩法 4 Boss 死亡监听（在 Layer4Play4 中处理）
--- 用法：require("Layers.Layer4Play4")
---|=============================================================
 
 --|=============================================================
 --[§2 生命周期]
@@ -272,34 +259,9 @@ function Layer4.shutdown()
     end
     Layer4.started = false
     Layer4.destroyPlay1Boss()
-    -- 停止刷怪计时器（已在 Layer4Play2.shutdown 中处理）
-    -- if Layer4.play2MobTimer then
-    --     Layer4.play2MobTimer:stop()
-    --     print("[Layer4] 停止刷怪计时器")
-    --     Layer4.play2MobTimer = nil
-    -- end
-    -- -- 销毁所有刷怪单位（已在 Layer4Play2.shutdown 中处理）
-    -- if #Layer4.play2MobHandles > 0 then
-    --     print(string.format("[Layer4] §2b: 销毁 %d 个刷怪单位", #Layer4.play2MobHandles))
-    --     for _, h in ipairs(Layer4.play2MobHandles) do
-    --         if h then pcall(function() Unit.fromHandle(h):destroy() end) end
-    --     end
-    --     Layer4.play2MobHandles = {}
-    -- end
-    -- if Layer4.play2WallHandle then
-    --     pcall(function() cj.RemoveDestructable(Layer4.play2WallHandle) end)
-    --     print("[Layer4] 清理竖墙 1")
-    --     Layer4.play2WallHandle = nil
-    -- end
-    -- Layer4.wallMap[4] = nil
-    -- Layer4.play2EnteredPids = {}
-    -- Layer4.play2Triggered = false
-    -- Layer4Play2.destroyMobSpawnRectListeners()  -- 已在 Layer4Play2.shutdown() 中处理
     Layer4.destroyWalls()
     Layer4.play1Triggered = false
-    -- 清理钥匙玩法监听/门区域（已在 Layer4Play2.shutdown 中处理）
-    -- Layer4.destroyPlay2KeyListeners()
-    -- -- 清理 play3（完整 shutdown，包括 BOSS 清理与监听）
+
     if Layer4Play3 then
         Layer4Play3.shutdown()
     end
@@ -425,19 +387,31 @@ function Layer4.hasUnitKey(uHandle)
 end
 
 function Layer4.tryDropKeyAt(x, y)
-    -- 此函数已移至 Layer4Play2.tryDropKeyAt
+    -- 委托给 Layer4Play2 处理
+    if Layer4Play2 and Layer4Play2.tryDropKeyAt then
+        Layer4Play2.tryDropKeyAt(x, y)
+    end
 end
 
 function Layer4.onPlay2DoorOpen(heroHandle, itemHandle)
-    -- 此函数已移至 Layer4Play2.onPlay2DoorOpen
+    -- 委托给 Layer4Play2 处理
+    if Layer4Play2 and Layer4Play2.onPlay2DoorOpen then
+        Layer4Play2.onPlay2DoorOpen(heroHandle, itemHandle)
+    end
 end
 
 function Layer4.createPlay2KeyDoor()
-    -- 此函数已移至 Layer4Play2.createPlay2KeyDoor
+    -- 委托给 Layer4Play2 处理
+    if Layer4Play2 and Layer4Play2.createPlay2KeyDoor then
+        Layer4Play2.createPlay2KeyDoor()
+    end
 end
 
 function Layer4.destroyPlay2KeyDoor()
-    -- 此函数已移至 Layer4Play2.destroyPlay2KeyDoor
+    -- 委托给 Layer4Play2 处理
+    if Layer4Play2 and Layer4Play2.destroyPlay2KeyDoor then
+        Layer4Play2.destroyPlay2KeyDoor()
+    end
 end
 
 local function onKeyPickup(ev)

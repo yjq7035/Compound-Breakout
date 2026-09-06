@@ -394,7 +394,7 @@ function Destroyable.EnumDestructablesInRect(r, filter)
         local maxx = r.maxx or r[3]
         local miny = r.miny or r[2]
         local maxy = r.maxy or r[4]
-        r = cj.CreateRect(minx, miny, maxx, maxy)
+        r = cj.Rect(minx, miny, maxx, maxy)
     end
 
     if type(r) ~= "rect" then return {} end

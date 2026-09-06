@@ -31,6 +31,7 @@ require "lua.Base.Visibility"
 require "lua.Base.SystemMessage"
 require "lua.Base.Effect"
 require "lua.Base.Multiboard"
+require "lua.Base.Destroyable"
 
 -- 底层：游戏资源泄露检测（默认开启，UI TXT 播报）
 require "lua.api.LeakDetect"
