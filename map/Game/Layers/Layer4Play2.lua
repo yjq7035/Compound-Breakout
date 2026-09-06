@@ -871,6 +871,8 @@ function Layer4Play2.start()
     -- 矩形配置已提取到文件顶部 Layer4Play2.mobSpawnRectsCfgA/B（全文件共享）
     Layer4Play2.initMobSpawnRectListeners()
     Layer4Play2.ensureMobDeathListener()
+    -- 创建横墙2（与关卡关联，随玩法2激活而创建）
+    Layer4.createPlay2Wall()
 end
 
 function Layer4Play2.shutdown()
@@ -900,6 +902,9 @@ function Layer4Play2.shutdown()
         pcall(function() cj.RemoveDestructable(Layer4Play2.play2WallHandle) end)
         Layer4Play2.play2WallHandle = nil
     end
+    
+    -- 销毁横墙2（随玩法2关闭而销毁）
+    Layer4.destroyPlay2Wall()
     
     -- 清理钥匙玩法监听/门区域
     Layer4Play2.destroyPlay2KeyListeners()

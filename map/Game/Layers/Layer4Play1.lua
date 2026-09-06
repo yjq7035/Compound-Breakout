@@ -94,16 +94,17 @@ function Play1.ensureDeathListener()
             print(string.format("[Layer4Play1] ✓ BOSS 死亡 type=%s", tostring(typeCode)))
             
             -- 销毁横墙 1
-            local h = cj.GetDestructableFromId(1) -- 或者使用 Layer4.wallMap[1]
+            local h = Layer4.wallMap[1]
             if not h then 
                 print("[Layer4Play1] 横墙 1 handle 缺失")
                 return 
             end
             
-            local wallCfg = { x = -8520.0, y = 3300.0 } -- 横墙 1 位置
-            print(string.format("[Layer4Play1] 销毁横墙 1 at %.1f,%.1f", wallCfg.x, wallCfg.y))
+            print(string.format("[Layer4Play1] 销毁横墙 1"))
             
             pcall(function() cj.RemoveDestructable(h) end)
+            for i, handle in ipairs(Layer4.handles) do if handle == h then table.remove(Layer4.handles, i) break end end
+            Layer4.wallMap[1] = nil
             print("[Layer4Play1] 横墙 1 已销毁")
             
             -- 发送消息
@@ -133,6 +134,7 @@ end
 
 -- 初始化
 function Play1.start()
+    Layer4.createPlay1Wall()  -- 创建横墙1
     Play1.createBoss()
     Play1.ensureDeathListener()
     print("[Layer4Play1] 玩法 1 初始化完成")

@@ -4,6 +4,8 @@
 -- 职责：
 --   1. 存放玩法 4 刷怪点配置
 --   2. 提供玩法 4 刷怪逻辑
+--   3. Boss 战管理（玩家进入区域时激活，Boss死亡/团灭时关闭）
+--   4. 竖墙3（index=6）的创建和销毁（与Boss战绑定）
 --|=============================================================
 
 -- ============================================================
@@ -150,40 +152,37 @@ function Layer4Play4.spawnMobAtPoint(mobId, pointId, mobLevel)
         return nil
     end
 
-    -- 检查位置高度，大于 1 不创建
-    local height = cdz.DzGetTerrainZ(point.x, point.y) or 0
-    if height > 1 then
-        print(string.format("[4_4] 位置 %.1f,%.1f 高度 %.1f > 1，跳过创建", point.x, point.y, height))
-        return nil
-    end
-
-    -- 计算属性：500*等级 生命值、5*等级 攻击力、15*等级 护甲和魔法抗性
+    -- 计算属性：参考玩法3，500*等级 生命值、20*等级 攻击力
     if not mobLevel or mobLevel < 1 then mobLevel = 1 end
     local bonusLife = 500 * mobLevel
-    local bonusAtk = 5 * mobLevel
-    local bonusArmor = 15 * mobLevel
-    local bonusResMag = 15 * mobLevel
+    local bonusAtk = 20 * mobLevel
 
     -- 创建单位
     local u = Unit:new(nil, mobId, point.x, point.y, 270)
     if u and u._handle then
-        -- 添加基础状态
+        -- 添加基础状态（参考玩法3的属性设置）
+        u:addState(UNIT_STATE_MAX_LIFE, bonusLife)
         u:addState(UNIT_STATE_LIFE, bonusLife)
         u:addState(UNIT_STATE_ATTACK_WHITE, bonusAtk)
-        u:addState(UNIT_STATE_DEFEND_WHITE, bonusArmor)
-        u:addState(UNIT_STATE_DEFEND_WHITE, bonusResMag)
 
         -- 添加到句柄列表
         table.insert(Layer4Play4.mobHandles, u._handle)
-        print(string.format("[4_4] 在刷怪点%d (%.1f,%.1f) 创建怪物 %s [等级=%d, 生命+=%d, 攻击+=%d, 护甲+=%d, 魔抗+=%d]",
-            pointId, point.x, point.y, mobId, mobLevel, bonusLife, bonusAtk, bonusArmor, bonusResMag))
+        
+        -- 详细调试输出
+        print(string.format("[4_4] ✓ 刷怪成功 | 刷怪点%d | 坐标(%.1f,%.1f) | 怪物ID=%s | 等级=%d | 生命+=%d | 攻击+=%d | 已创建总数=%d",
+            pointId, point.x, point.y, mobId, mobLevel, bonusLife, bonusAtk, #Layer4Play4.mobHandles))
+        
+        -- 每创建5个怪物打印一次汇总
+        if (#Layer4Play4.mobHandles % 5 == 0) then
+            print(string.format("[4_4] === 当前已创建 %d 个怪物 ===", #Layer4Play4.mobHandles))
+        end
 
         -- 标记该刷怪点为已使用
         Layer4Play4.markSpawnPointUsed(pointId)
 
         return u
     else
-        print(string.format("[4_4] 创建怪物失败 %s", mobId))
+        print(string.format("[4_4] ✗ 创建怪物失败 | 怪物ID=%s | 刷怪点=%d", mobId, pointId))
         return nil
     end
 end
@@ -212,6 +211,8 @@ function Layer4Play4.batchSpawnAtAllPoints()
         print("[4_4] 警告：没有可用的怪物列表")
         return
     end
+    
+    print(string.format("[4_4] 怪物列表总数: %d 个ID", #mobList))
 
     -- 随机抽取数量 6-9
     local count = math.random(6, 9)
@@ -232,7 +233,7 @@ function Layer4Play4.batchSpawnAtAllPoints()
         table.insert(selectedMobs, shuffled[i])
     end
 
-    print(string.format("[4_4] 从玩法2列表随机抽取 %d 个怪物：", #selectedMobs))
+    print(string.format("[4_4] ========== 开始批量刷怪，抽取 %d 个怪物类型 ==========", #selectedMobs))
     for i, mobId in ipairs(selectedMobs) do
         print(string.format("  [%d] %s", i, mobId))
     end
@@ -240,11 +241,18 @@ function Layer4Play4.batchSpawnAtAllPoints()
     -- 在所有刷怪点批量创建（每个刷怪点6-9个单位）
     local unitsPerPoint = math.random(6, 9)
     local spawnedCount = 0
+    local totalExpected = #Layer4Play4.spawnPoints * unitsPerPoint
+
+    print(string.format("[4_4] 将在 %d 个刷怪点，每点创建 %d 个单位，预计共 %d 个",
+        #Layer4Play4.spawnPoints, unitsPerPoint, totalExpected))
 
     for i, point in ipairs(Layer4Play4.spawnPoints) do
         -- 从 selectedMobs 循环取值
         local mobId = selectedMobs[(i - 1) % #selectedMobs + 1]
         local level = i % 3 + 1 -- 等级 1-3，每3个刷怪点循环一次
+        
+        print(string.format("[4_4] 刷怪点%d (%.1f,%.1f): 使用怪物 %s, 等级=%d",
+            point.id, point.x, point.y, mobId, level))
 
         for j = 1, unitsPerPoint do
             local u = Layer4Play4.spawnMobAtPoint(mobId, point.id, level)
@@ -254,7 +262,8 @@ function Layer4Play4.batchSpawnAtAllPoints()
         end
     end
 
-    print(string.format("[4_4] 批量刷怪完成，共创建 %d 个单位", spawnedCount))
+    print(string.format("[4_4] ========== 批量刷怪完成，实际创建 %d/%d 个单位 ==========",
+        spawnedCount, totalExpected))
 end
 
 -- 获取当前刷怪点数量
@@ -328,6 +337,32 @@ function Layer4Play4.init()
         print(string.format("  - 刷怪点 %d: (%.1f, %.1f)",
             point.id, point.x, point.y))
     end
+end
+
+-- ============================================================
+-- §4: 玩法 4 激活（玩法3通关时调用）
+-- ============================================================
+
+-- 玩法3通关时激活：创建 Boss 战区域 + 批量刷怪（非 Boss 战内容）
+function Layer4Play4.activateOnStart()
+    if not Layer4Play4.initialized then
+        Layer4Play4.init()
+    end
+
+    -- 创建 Boss 战区域
+    Layer4Play4.initBossArea()
+
+    -- 在所有刷怪点批量创建怪物（这不是 Boss 战内容）
+    Layer4Play4.batchSpawnAtAllPoints()
+
+    -- 发送系统消息
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", "玩法 4 已激活！怪物已刷新，前往 Boss 区域触发 Boss 战！", SystemMessage.COLOR_WARN}}, 5.0)
+    else
+        Player.sendAll("玩法 4 已激活！怪物已刷新，前往 Boss 区域触发 Boss 战！")
+    end
+
+    print("[4_4] 玩法 4 已激活（玩法3通关）")
 end
 
 -- ============================================================
@@ -436,27 +471,9 @@ function Layer4Play4.checkAndActivateBoss()
         -- 创建 Boss
         Layer4Play4.createBoss()
 
-        -- 激活 Boss 战：创建竖墙 3（index=6）作为关门
-        local wall6 = Layer4.wallMap[6]
-        if wall6 then
-            -- 竖墙3已存在（从map中获取handle），激活显示
-            print("[4_4] ✓ 竖墙 3 已激活")
-        else
-            -- 竖墙3不存在，创建它
-            local wallTypeId = c2i("DL84") or 0
-            if wallTypeId > 0 then
-                local wallPos = { index = 6, x = -11647.0, y = 2867.7, id = "DL84", dir = "V", face = 0 }
-                local h = cj.CreateDestructable(wallTypeId, wallPos.x, wallPos.y, wallPos.face, 1, 0)
-                if h then
-                    Layer4.wallMap[6] = h
-                    table.insert(Layer4.handles, h)
-                    print(string.format("[4_4] ✓ 竖墙 3 已创建 @ %.1f,%.1f", wallPos.x, wallPos.y))
-                else
-                    print(string.format("[4_4] ✗ 竖墙 3 创建失败 @ %.1f,%.1f", wallPos.x, wallPos.y))
-                end
-            else
-                print("[4_4] 竖墙类型 DL84 无效")
-            end
+        -- 创建竖墙 3（index=6）作为关门 - 使用 Layer4 的统一函数
+        if Layer4 and Layer4.createVerticalWallForPlay3 then
+            Layer4.createVerticalWallForPlay3()
         end
 
         -- 发送系统消息
@@ -541,18 +558,9 @@ function Layer4Play4.initBossDeathListener()
             -- 玩法 4 通关：销毁 Boss，销毁竖墙 3，发送消息，清理资源
             Layer4Play4.destroyBoss()
 
-            -- 销毁竖墙 3（index=6）
-            local wall6 = Layer4.wallMap[6]
-            if wall6 then
-                pcall(cj.RemoveDestructable, wall6)
-                Layer4.wallMap[6] = nil
-                for i, handle in ipairs(Layer4.handles) do 
-                    if handle == wall6 then 
-                        table.remove(Layer4.handles, i) 
-                        break 
-                    end 
-                end
-                print("[4_4] 竖墙 3 已销毁")
+            -- 销毁竖墙 3（index=6）- 使用 Layer4 的统一函数
+            if Layer4 and Layer4.destroyVerticalWallForPlay3 then
+                Layer4.destroyVerticalWallForPlay3()
             end
 
             if SystemMessage and SystemMessage.send then
@@ -632,18 +640,11 @@ function Layer4Play4.onAllPlayersDied()
 
     -- 销毁 Boss 和竖墙 3
     Layer4Play4.destroyBoss()
-    local wall6 = Layer4.wallMap[6]
-    if wall6 then
-        pcall(cj.RemoveDestructable, wall6)
-        Layer4.wallMap[6] = nil
-        for i, handle in ipairs(Layer4.handles) do 
-            if handle == wall6 then 
-                table.remove(Layer4.handles, i) 
-                break 
-            end 
-        end
-        print("[4_4] 团灭：竖墙 3 已销毁")
+    -- 销毁竖墙 3（index=6）- 使用 Layer4 的统一函数
+    if Layer4 and Layer4.destroyVerticalWallForPlay3 then
+        Layer4.destroyVerticalWallForPlay3()
     end
+    print("[4_4] 团灭：竖墙 3 已销毁")
 
     -- 重置 Boss 战状态
     Layer4Play4.bossActivated = false
@@ -723,17 +724,9 @@ function Layer4Play4.cleanupBossSystem()
     Layer4Play4.destroyBossEvent()
     Layer4Play4.destroyHeroDeathListener()
     Layer4Play4.destroyBoss()
-    -- 销毁竖墙 3（index=6）
-    local wall6 = Layer4.wallMap[6]
-    if wall6 then
-        pcall(cj.RemoveDestructable, wall6)
-        Layer4.wallMap[6] = nil
-        for i, handle in ipairs(Layer4.handles) do 
-            if handle == wall6 then 
-                table.remove(Layer4.handles, i) 
-                break 
-            end 
-        end
+    -- 销毁竖墙 3（index=6）- 使用 Layer4 的统一函数
+    if Layer4 and Layer4.destroyVerticalWallForPlay3 then
+        Layer4.destroyVerticalWallForPlay3()
     end
     Layer4Play4.destroyBossArea()
     Layer4Play4.deadHeroes = {}
@@ -745,18 +738,10 @@ function Layer4Play4.cleanup()
     Layer4Play4.initialized = false
     Layer4Play4.destroyAllMobs()
     Layer4Play4.resetSpawnPoints()
-    -- 销毁 Boss 战竖墙 3（如果存在）
+    -- 销毁 Boss 战竖墙 3（如果存在）- 使用 Layer4 的统一函数
     if Layer4Play4.bossActivated then
-        local wall6 = Layer4.wallMap[6]
-        if wall6 then
-            pcall(cj.RemoveDestructable, wall6)
-            Layer4.wallMap[6] = nil
-            for i, handle in ipairs(Layer4.handles) do 
-                if handle == wall6 then 
-                    table.remove(Layer4.handles, i) 
-                    break 
-                end 
-            end
+        if Layer4 and Layer4.destroyVerticalWallForPlay3 then
+            Layer4.destroyVerticalWallForPlay3()
         end
         Layer4Play4.bossActivated = false
     end

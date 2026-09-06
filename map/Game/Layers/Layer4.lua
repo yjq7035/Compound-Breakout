@@ -4,10 +4,11 @@
 -- 坐标：入口/复活/传送 -8518.2,747.9（由关卡 3 通关后传送至此）
 -- 职责：
 --   1. 存放第四关卡坐标（入口/复活、传送）
---   2. §1b: 创建墙体（横墙 B000 / 竖墙 DL84，index=4/6 默认不创建）
+--   2. §1b: 创建墙体（横墙 B000 / 竖墙 DL84，index=1/2/4/5/6 默认不创建）
 --   3. §2a: 玩法 1 魔法强化怪物 n89f + 击杀销毁横墙 1
 --   4. §2b: 玩法 2 已分离至 Layer4Play2.lua（独立管理）
---   5. §2d: 玩法 4 BOSS 创建和销毁
+--   5. §2d: 玩法 3 竖墙2/竖墙3 的创建和销毁（与玩法3绑定）
+--   6. §2d: 玩法 4 BOSS 创建和销毁
 --|=============================================================
 
 -- ============================================================
@@ -37,7 +38,7 @@ Layer4.potionShopPos= { x = -8518.2, y = 747.9, name = "关卡 4 药剂商店（
 Layer4.WALL_H = "B000"
 Layer4.WALL_V = "DL84"
 
--- index 4=竖墙 1, index 6=竖墙 3 启动时默认不创建（玩法 2 触发后才创建竖墙 1）
+-- index 1/2/4/5/6（横墙1/横墙2/竖墙1/竖墙2/竖墙3）启动时默认不创建（横墙1由玩法1触发后创建，横墙2由玩法2触发后创建，竖墙1由玩法2触发后创建，竖墙2由玩法3激活时创建，竖墙3由玩法4 BOSS 战激活时创建）
 Layer4.walls = {
     { index = 1, x = -8543.2,  y = 3544.7, id = "B000", dir = "H", face = 270, name = "横墙 1" },
     { index = 2, x = -12897.8, y = 3844.4, id = "B000", dir = "H", face = 270, name = "横墙 2" },
@@ -76,7 +77,8 @@ end
 function Layer4.createWalls()
     if Layer4.createDone then return end
     for _, w in ipairs(Layer4.walls) do
-        if w.index ~= 4 and w.index ~= 6 then
+        -- index 1(横墙1) 和 index 2(横墙2) 不在启动时创建，由各自玩法激活时创建
+        if w.index ~= 1 and w.index ~= 2 and w.index ~= 4 and w.index ~= 5 and w.index ~= 6 then
             local h = createOne(w)
             if h then
                 table.insert(Layer4.handles, h)
@@ -95,6 +97,88 @@ function Layer4.destroyWalls()
     Layer4.handles = {}
     Layer4.wallMap = {}
     Layer4.createDone = false
+end
+
+--|=============================================================
+-- §1c 横墙管理（玩法1和玩法2专用）
+--|=============================================================
+
+function Layer4.createPlay1Wall()
+    -- 创建横墙1（index=1），供玩法1激活时使用
+    if Layer4.wallMap[1] then return end
+    local wallCfg = Layer4.walls[1]
+    if not wallCfg then return end
+    local h = createOne(wallCfg)
+    if h then
+        table.insert(Layer4.handles, h)
+        Layer4.wallMap[1] = h
+    end
+end
+
+function Layer4.createPlay2Wall()
+    -- 创建横墙2（index=2），供玩法2激活时使用
+    if Layer4.wallMap[2] then return end
+    local wallCfg = Layer4.walls[2]
+    if not wallCfg then return end
+    local h = createOne(wallCfg)
+    if h then
+        table.insert(Layer4.handles, h)
+        Layer4.wallMap[2] = h
+    end
+end
+
+function Layer4.destroyPlay2Wall()
+    -- 销毁横墙2（index=2），供玩法2关闭时使用
+    local h = Layer4.wallMap[2]
+    if h then
+        pcall(function() cj.RemoveDestructable(h) end)
+        for i, handle in ipairs(Layer4.handles) do if handle == h then table.remove(Layer4.handles, i) break end end
+        Layer4.wallMap[2] = nil
+    end
+end
+
+function Layer4.destroyVerticalWallForPlay3()
+    -- 销毁竖墙3（index=6），供玩法3通关时使用
+    local h = Layer4.wallMap[6]
+    if h then
+        pcall(function() cj.RemoveDestructable(h) end)
+        for i, handle in ipairs(Layer4.handles) do if handle == h then table.remove(Layer4.handles, i) break end end
+        Layer4.wallMap[6] = nil
+    end
+end
+
+function Layer4.destroyVerticalWall2ForPlay3()
+    -- 销毁竖墙2（index=5），供玩法3通关或关闭时使用
+    local h = Layer4.wallMap[5]
+    if h then
+        pcall(function() cj.RemoveDestructable(h) end)
+        for i, handle in ipairs(Layer4.handles) do if handle == h then table.remove(Layer4.handles, i) break end end
+        Layer4.wallMap[5] = nil
+    end
+end
+
+function Layer4.createVerticalWallForPlay3()
+    -- 创建竖墙3（index=6），供玩法3激活时使用
+    if Layer4.wallMap[6] then return end
+    local wallCfg = Layer4.walls[6]
+    if not wallCfg then return end
+    local h = createOne(wallCfg)
+    if h then
+        table.insert(Layer4.handles, h)
+        Layer4.wallMap[6] = h
+    end
+end
+
+function Layer4.createVerticalWall2ForPlay3()
+    -- 创建竖墙2（index=5），供玩法3激活时使用
+    if Layer4.wallMap[5] then return end
+    local wallCfg = Layer4.walls[5]
+    if not wallCfg then return end
+    local h = createOne(wallCfg)
+    if h then
+        table.insert(Layer4.handles, h)
+        Layer4.wallMap[5] = h
+    end
 end
 
 --|=============================================================\
@@ -202,6 +286,11 @@ Layer4.play4Unit      = nil
 function Layer4.createPlay4Boss()
     if Layer4.play4Unit then return end
 
+    -- 创建竖墙3（index=6），与玩法4 BOSS 战绑定
+    if Layer4 and Layer4.createVerticalWallForPlay3 then
+        Layer4.createVerticalWallForPlay3()
+    end
+
     local p = Player:new(4)
     if not p then return end
     local u = Unit:new(p, Layer4.play4Config.unitId, Layer4.play4Config.pos.x, Layer4.play4Config.pos.y, Layer4.play4Config.facing)
@@ -210,6 +299,22 @@ function Layer4.createPlay4Boss()
     u.state.resMag = u:getState(UNIT_STATE_DEFEND_WHITE)
     u.state.defendWhite = u:getState(UNIT_STATE_DEFEND_WHITE)
 
+    -- 应用 play4Config 中的属性配置
+    local cfg = Layer4.play4Config
+    if cfg.armor and cfg.armor > 0 then
+        u:addState(UNIT_STATE_DEFEND_WHITE, cfg.armor)
+    end
+    if cfg.hp and cfg.hp > 0 then
+        -- hp 是额外生命值，使用 addState 增加
+        u:addState(UNIT_STATE_LIFE, cfg.hp)
+    end
+    if cfg.magic and cfg.magic > 0 then
+        u.state.magicAmp = (u.state.magicAmp or 0) + cfg.magic
+    end
+    if cfg.maxMana and cfg.maxMana > 0 then
+        u:addState(UNIT_STATE_MANA, cfg.maxMana)
+    end
+
     Layer4.play4Unit = u
 end
 
@@ -217,6 +322,11 @@ function Layer4.destroyPlay4Boss()
     if not Layer4.play4Unit then return end
     pcall(function() Layer4.play4Unit:destroy() end)
     Layer4.play4Unit = nil
+    
+    -- 销毁竖墙3（index=6），与玩法4 BOSS 战绑定
+    if Layer4 and Layer4.destroyVerticalWallForPlay3 then
+        Layer4.destroyVerticalWallForPlay3()
+    end
 end
 
 
@@ -241,16 +351,13 @@ function Layer4.start()
         Player.sendAll("关卡 4 已启动")
     end
     Layer4.createWalls()
-    if not Layer4.play1Unit then Layer4.createPlay1Boss() end
-    -- 初始化玩法 2 监听器（玩家进入 A/B 区域触发）
-    if Layer4Play2 then
-        Layer4Play2.start()
+    -- 直接激活玩法4（跳过玩法1/2/3，用于快速测试）
+    Layer4.createPlay4Boss()
+    -- 直接激活玩法3（跳过玩法1和2，用于快速测试）
+    if Layer4Play3 then
+        Layer4Play3.start()
     end
-    -- Layer4Play2.initMobSpawnRectListeners(Layer4.mobSpawnRectsA, Layer4.mobSpawnRectsB)
-    Layer4.ensureDeathListener()
-    Layer4.ensureMobDeathListener()
-    Layer4.ensurePlay2KeyListeners() -- 兼容调用，实际在 Layer4Play2 中实现
-    -- 玩法 3 由玩法 2 开门后激活（见 Layer4Play2.onPlay2DoorOpen）
+    -- 玩法1和玩法2已跳过（快速测试模式）
 end
 
 function Layer4.shutdown()

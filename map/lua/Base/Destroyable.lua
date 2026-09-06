@@ -384,41 +384,90 @@ end
 -- 区域枚举
 ------------------------------------------------------------------
 
+--- 内部临时 rect，用于 EnumDestructablesInRect 收集结果
+local enumResultCache = {}
+
 --- 枚举矩形区域内的所有可破坏物
---- @param r table|rect 矩形区域，可以是：
---- @param filter function|nil 过滤函数，接收 destructable 对象，返回 true 保留，false 跳过
---- @return table 可破坏物列表 {Destroyable, Destroyable, ...}
+--- @param r table|Rect|rect 矩形区域，支持：
+---   - Rect 对象（有 _handle 字段）
+---   - 配置表 `{minx, miny, maxx, maxy}` 或 `{minx=, miny=, maxx=, maxy=}`
+---   - 原生 rect handle（userdata）
+--- @param filter fun(Rect, Destroyable)|nil 过滤函数，返回 true 则保留
+--- @return table 可破坏物表 {Destroyable, ...}
 function Destroyable.EnumDestructablesInRect(r, filter)
-    if type(r) == "table" then
+    local needCleanup = false
+
+    -- 支持 Rect 对象（有 _handle 字段）
+    if type(r) == "table" and r._handle then
+        r = r._handle
+    elseif type(r) == "table" then
+        -- 支持配置表（有 minx/miny/maxx/maxy 字段）
         local minx = r.minx or r[1]
         local maxx = r.maxx or r[3]
         local miny = r.miny or r[2]
         local maxy = r.maxy or r[4]
         r = cj.Rect(minx, miny, maxx, maxy)
+        needCleanup = true
     end
 
-    if type(r) ~= "rect" then return {} end
+    if r == nil then return {} end
 
-    local result = {}
-    cj.EnumDestructablesInRect(r, nil, function(handle)
-        local obj = Destroyable.fromHandle(handle)
+    -- 清空缓存，重新收集
+    enumResultCache = {}
+    cj.EnumDestructablesInRect(r, nil, function()
+        local obj = Destroyable.fromHandle(cj.GetEnumDestructable())
         if obj and isValid(obj) then
-            if not filter or filter(obj) then
-                table.insert(result, obj)
+            if not filter or filter(r, obj) then
+                table.insert(enumResultCache, obj)
             end
         end
         return true  -- 继续枚举
     end)
 
-    return result
+    -- 清理临时创建的 rect，防止 handle 泄漏
+    if needCleanup then
+        cj.RemoveRect(r)
+    end
+
+    return enumResultCache
 end
 
 --- 枚举矩形区域内的可破坏物数量
---- @param r table|rect 矩形区域
+--- @param r table|rect|Rect 矩形区域，支持 Rect 对象/配置表/rect 句柄
 --- @param filter function|nil 过滤函数
 --- @return integer 数量
 function Destroyable.EnumDestructablesInRectCount(r, filter)
     return #Destroyable.EnumDestructablesInRect(r, filter)
 end
+
+--- 为矩形区域内的所有可破坏物注册死亡事件
+--- @param r table|rect|Rect 矩形区域，支持 Rect 对象/配置表/rect 句柄
+--- @param filter fun(r, d) 死亡回调，参数为 (rect, Destroyable)
+--- @return table 已注册的 trigger 表 {trigger, ...}
+function Destroyable.RegionalDeathEvent(r, filter)
+    if not filter then return {} end
+
+    -- 先获取区域内的可破坏物列表（使用独立的过滤函数）
+    local destructables = Destroyable.EnumDestructablesInRect(r, function(rect, d)return true end)
+
+    if #destructables == 0 then return {} end
+
+    local trigs = {}
+    for _, d in ipairs(destructables) do
+        local trig = cj.CreateTrigger()
+        d:registerDeathEvent(trig)
+        cj.TriggerAddAction(trig, function()
+            filter(r, d)
+        end)
+        table.insert(trigs, trig)
+    end
+
+    return trigs
+end
+
+
+
+
+
 
 return Destroyable
