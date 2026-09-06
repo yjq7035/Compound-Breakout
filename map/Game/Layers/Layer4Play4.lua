@@ -11,10 +11,11 @@
 -- ============================================================
 -- §0: 玩法 4 Boss 区域配置
 -- ============================================================
--- Boss 战斗区域：左下角 -11107.3, 1447.1 右上角 -10208.0, 2483.8
+-- Boss 战斗区域：中心 -10672.8, 2042.7，宽高各 750
+-- Boss 初始坐标：-10672.8, 2042.7
 Layer4Play4 = {}
 Layer4Play4.bossArea = {
-    { id = "4_boss", minx = -11107.3, miny = 1447.1, maxx = -10208.0, maxy = 2483.8, name = "玩法 4 Boss 战斗区域" }
+    { id = "4_boss", minx = -11047.8, miny = 1667.7, maxx = -10297.8, maxy = 2417.7, name = "玩法 4 Boss 战斗区域" }
 }
 
 -- ============================================================
@@ -58,7 +59,7 @@ Layer4Play4.initialized = false
 -- ============================================================
 Layer4Play4.bossConfig = {
     unitId    = "na6m",      -- Boss 单位类型（最终Boss）
-    pos       = { x = -10657.7, y = 1965.5 },  -- Boss 初始坐标（区域中心）
+    pos       = { x = -10672.8, y = 2042.7 },  -- Boss 初始坐标（区域中心）
     facing    = 270,
     hp        = 50000,       -- Boss 生命值
     magic     = 20000,       -- Boss 魔法值
@@ -160,7 +161,6 @@ function Layer4Play4.spawnMobAtPoint(mobId, pointId, mobLevel)
     -- 创建单位（使用玩家 4，与玩法 2/3 一致）
     local p = Player:new(4)
     if not p then
-        print(string.format("[4_4] 创建怪物失败：无法获取玩家 4 | 怪物ID=%s | 刷怪点=%d", mobId, pointId))
         return nil
     end
 
@@ -173,22 +173,12 @@ function Layer4Play4.spawnMobAtPoint(mobId, pointId, mobLevel)
 
         -- 添加到句柄列表
         table.insert(Layer4Play4.mobHandles, u._handle)
-        
-        -- 详细调试输出
-        print(string.format("[4_4] ✓ 刷怪成功 | 刷怪点%d | 坐标(%.1f,%.1f) | 怪物ID=%s | 等级=%d | 生命+=%d | 攻击+=%d | 已创建总数=%d",
-            pointId, point.x, point.y, mobId, mobLevel, bonusLife, bonusAtk, #Layer4Play4.mobHandles))
-        
-        -- 每创建5个怪物打印一次汇总
-        if (#Layer4Play4.mobHandles % 5 == 0) then
-            print(string.format("[4_4] === 当前已创建 %d 个怪物 ===", #Layer4Play4.mobHandles))
-        end
 
         -- 标记该刷怪点为已使用
         Layer4Play4.markSpawnPointUsed(pointId)
 
         return u
     else
-        print(string.format("[4_4] ✗ 创建怪物失败 | 怪物ID=%s | 刷怪点=%d", mobId, pointId))
         return nil
     end
 end
@@ -217,8 +207,6 @@ function Layer4Play4.batchSpawnAtAllPoints()
         print("[4_4] 警告：没有可用的怪物列表")
         return
     end
-    
-    print(string.format("[4_4] 怪物列表总数: %d 个ID", #mobList))
 
     -- 随机抽取数量 6-9
     local count = math.random(6, 9)
@@ -239,26 +227,14 @@ function Layer4Play4.batchSpawnAtAllPoints()
         table.insert(selectedMobs, shuffled[i])
     end
 
-    print(string.format("[4_4] ========== 开始批量刷怪，抽取 %d 个怪物类型 ==========", #selectedMobs))
-    for i, mobId in ipairs(selectedMobs) do
-        print(string.format("  [%d] %s", i, mobId))
-    end
-
     -- 在所有刷怪点批量创建（每个刷怪点6-9个单位）
     local unitsPerPoint = math.random(6, 9)
     local spawnedCount = 0
-    local totalExpected = #Layer4Play4.spawnPoints * unitsPerPoint
-
-    print(string.format("[4_4] 将在 %d 个刷怪点，每点创建 %d 个单位，预计共 %d 个",
-        #Layer4Play4.spawnPoints, unitsPerPoint, totalExpected))
 
     for i, point in ipairs(Layer4Play4.spawnPoints) do
         -- 从 selectedMobs 循环取值
         local mobId = selectedMobs[(i - 1) % #selectedMobs + 1]
         local level = i % 3 + 1 -- 等级 1-3，每3个刷怪点循环一次
-        
-        print(string.format("[4_4] 刷怪点%d (%.1f,%.1f): 使用怪物 %s, 等级=%d",
-            point.id, point.x, point.y, mobId, level))
 
         for j = 1, unitsPerPoint do
             local u = Layer4Play4.spawnMobAtPoint(mobId, point.id, level)
@@ -267,9 +243,6 @@ function Layer4Play4.batchSpawnAtAllPoints()
             end
         end
     end
-
-    print(string.format("[4_4] ========== 批量刷怪完成，实际创建 %d/%d 个单位 ==========",
-        spawnedCount, totalExpected))
 end
 
 -- 获取当前刷怪点数量
@@ -358,6 +331,9 @@ function Layer4Play4.activateOnStart()
     -- 创建 Boss 战区域
     Layer4Play4.initBossArea()
 
+    -- 注册 Boss 进入监听（必须在 initBossArea 之后）
+    Layer4Play4.initBossEnterListener()
+
     -- 在所有刷怪点批量创建怪物（这不是 Boss 战内容）
     Layer4Play4.batchSpawnAtAllPoints()
 
@@ -392,19 +368,22 @@ function Layer4Play4.createBoss()
     end
 
     -- 设置 Boss 属性
-    u:addState(UNIT_STATE_LIFE, cfg.hp)
+    u:setState(UNIT_STATE_MAX_LIFE, cfg.hp)
+    u:setState(UNIT_STATE_LIFE, cfg.hp)
     u:addState(UNIT_STATE_ATTACK_WHITE, cfg.atk)
     u:addState(UNIT_STATE_DEFEND_WHITE, cfg.armor)
     u:addState(UNIT_STATE_DEFEND_WHITE, cfg.resMag)
-    u:addState(UNIT_STATE_MANA, cfg.magic)
+    u:setState(UNIT_STATE_MANA, cfg.magic)
     u.state.attackStr = (u.state.attackStr or 0) + cfg.atkStr
     u.state.magicAmp  = (u.state.magicAmp  or 0) + cfg.magAmp
     u.state.lifeRegen = (u.state.lifeRegen or 0) + cfg.lifeRegen
 
     Layer4Play4.bossUnit = u
     print(string.format("[4_4] ✓ Boss 创建：type=%s hp=%d mana=%d armor=%d resMag=%d atk=%d atkStr=%d magAmp=%d regen=%d",
-                        u:getType(), u:getLife(), u:getMana() or 0, u:getArmor(),
-                        u.state.resMag or 0, u:getAttack(), u.state.attackStr, u.state.magicAmp, u.state.lifeRegen or 0))
+                        u:getTypeCode(), u:getState(UNIT_STATE_LIFE), u:getState(UNIT_STATE_MANA),
+                        u:getState(UNIT_STATE_DEFEND_WHITE), u.state.resMag or 0,
+                        u:getState(UNIT_STATE_ATTACK_WHITE), u.state.attackStr,
+                        u.state.magicAmp, u.state.lifeRegen or 0))
 end
 
 -- 销毁 Boss
@@ -427,7 +406,7 @@ function Layer4Play4.initBossArea()
 
     local cfg = Layer4Play4.bossArea[1]
     Layer4Play4.bossAreaRect = Rect:new(cfg.minx, cfg.miny, cfg.maxx, cfg.maxy)
-    print(string.format("[4_4] Boss 区域已创建：(min: %.1f,%.1f max: %.1f,%.1f)",
+    print(string.format("[4_4] ✓ Boss 区域已创建：(min: %.1f,%.1f max: %.1f,%.1f)",
           cfg.minx, cfg.miny, cfg.maxx, cfg.maxy))
 end
 
@@ -443,13 +422,21 @@ function Layer4Play4.checkAndActivateBoss()
         end
     end
 
+    print(string.format("[4_4] 🔍 检查 Boss 激活 | 在线玩家数=%d | bossActivated=%s", 
+        #activePlayers, tostring(Layer4Play4.bossActivated)))
+
     if #activePlayers == 0 then return end
 
-    -- 检查所有玩家英雄是否在 Boss 区域内
+    -- 检查所有玩家英雄是否在 Boss 区域内（扩展 100 码作为缓冲区）
     local cfg = Layer4Play4.bossArea[1]
+    local buffer = 100  -- 缓冲区 100 码
     local allEntered = true
+    local checkMinX = cfg.minx - buffer
+    local checkMaxX = cfg.maxx + buffer
+    local checkMinY = cfg.miny - buffer
+    local checkMaxY = cfg.maxy + buffer
 
-    for _, p in ipairs(activePlayers) do
+    for idx, p in ipairs(activePlayers) do
         local entered = false
         local g = Group:new()
         g:enumPlayer(p._handle)
@@ -458,20 +445,25 @@ function Layer4Play4.checkAndActivateBoss()
             if u then
                 local ux, uy = u:getX(), u:getY()
                 if ux and uy then
-                    if ux >= cfg.minx and ux <= cfg.maxx and uy >= cfg.miny and uy <= cfg.maxy then
+                    print(string.format("[4_4]   玩家%d 英雄坐标(%.1f,%.1f) | 判定区域[minx=%.1f, maxx=%.1f, miny=%.1f, maxy=%.1f]（原区域外扩%d码）",
+                        p:getId(), ux, uy, checkMinX, checkMaxX, checkMinY, checkMaxY, buffer))
+                    if ux >= checkMinX and ux <= checkMaxX and uy >= checkMinY and uy <= checkMaxY then
                         entered = true
                     end
                 end
             end
         end)
+        print(string.format("[4_4]   玩家%d 是否在区域内=%s", p:getId(), tostring(entered)))
         if not entered then
             allEntered = false
         end
     end
 
+    print(string.format("[4_4] 🔍 所有玩家是否都进入=%s", tostring(allEntered)))
+
     -- 所有玩家进入 Boss 区域，激活 Boss 战
     if allEntered then
-        print("[4_4] 所有玩家已进入 Boss 区域，激活 Boss 战！")
+        print("[4_4] ✓ 所有玩家已进入 Boss 区域，激活 Boss 战！")
         Layer4Play4.bossActivated = true
 
         -- 创建 Boss
@@ -504,16 +496,23 @@ function Layer4Play4.initBossEnterListener()
         if Layer4Play4.bossActivated then return end
 
         local u = ev._unit or ev.unit or cj.GetEnteringUnit()
-        if not u then return end
+        if not u then 
+            print("[4_4] ✗ 进入事件触发但无法获取单位")
+            return 
+        end
         if not cj.IsUnitType(u, UNIT_TYPE_HERO) then return end
 
         local owner = Player.fromHandle(cj.GetOwningPlayer(u))
         if not owner or not owner:isUser() then return end
 
+        local ux, uy = cj.GetUnitX(u), cj.GetUnitY(u)
+        print(string.format("[4_4] 🎯 玩家英雄进入区域监听触发 | 玩家=%d | 坐标(%.1f,%.1f)", 
+            owner:getId(), ux or 0, uy or 0))
+
         Layer4Play4.checkAndActivateBoss()
     end)
 
-    print("[4_4] Boss 进入监听已注册")
+    print("[4_4] ✓ Boss 进入监听已注册")
 end
 
 -- 销毁 Boss 进入监听

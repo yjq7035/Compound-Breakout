@@ -351,6 +351,10 @@ function Layer4.start()
         Player.sendAll("关卡 4 已启动")
     end
     Layer4.createWalls()
+    -- 激活玩法 4（刷怪 + 注册 Boss 进入监听，Boss 由玩家进入区域后激活）
+    if Layer4Play4 then
+        Layer4Play4.activateOnStart()
+    end
 end
 
 function Layer4.shutdown()
