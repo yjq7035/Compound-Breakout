@@ -351,13 +351,6 @@ function Layer4.start()
         Player.sendAll("关卡 4 已启动")
     end
     Layer4.createWalls()
-    -- 直接激活玩法4（跳过玩法1/2/3，用于快速测试）
-    Layer4.createPlay4Boss()
-    -- 直接激活玩法3（跳过玩法1和2，用于快速测试）
-    if Layer4Play3 then
-        Layer4Play3.start()
-    end
-    -- 玩法1和玩法2已跳过（快速测试模式）
 end
 
 function Layer4.shutdown()

@@ -157,8 +157,14 @@ function Layer4Play4.spawnMobAtPoint(mobId, pointId, mobLevel)
     local bonusLife = 500 * mobLevel
     local bonusAtk = 20 * mobLevel
 
-    -- 创建单位
-    local u = Unit:new(nil, mobId, point.x, point.y, 270)
+    -- 创建单位（使用玩家 4，与玩法 2/3 一致）
+    local p = Player:new(4)
+    if not p then
+        print(string.format("[4_4] 创建怪物失败：无法获取玩家 4 | 怪物ID=%s | 刷怪点=%d", mobId, pointId))
+        return nil
+    end
+
+    local u = Unit:new(p, mobId, point.x, point.y, 270)
     if u and u._handle then
         -- 添加基础状态（参考玩法3的属性设置）
         u:addState(UNIT_STATE_MAX_LIFE, bonusLife)
