@@ -495,46 +495,40 @@ function Layer4Play2.spawnOneMob()
     local x, y = 0, 0
     for attempt = 1, maxAttempts do
         local spawnPos = Layer4Play2.generateRandomSpawnPos()
-        if not spawnPos then
-            -- 如果所有尝试都失败，直接返回
+        if spawnPos then
+            x = spawnPos.x
+            y = spawnPos.y
+            local enemyCount = 0
+            
+            -- 检查周围 800 码内是否有与目标玩家敌对的单位
+            Group:new():enumRange(x, y, 800, function(handle)
+                local u = Unit.fromHandle(handle)
+                if not u then return end
+                local ux, uy = u:getX(), u:getY()
+                if ux and uy then
+                    local dx = ux - x
+                    local dy = uy - y
+                    local dist = math.sqrt(dx * dx + dy * dy)
+                    if dist < 800 then
+                        local owner = u:getOwner()
+                        -- 判断单位所属玩家是否与目标玩家敌对
+                        if owner and owner:isEnemy(bestPlayer) then
+                            enemyCount = enemyCount + 1
+                        end
+                    end
+                end
+            end)
+            
+            if enemyCount == 0 then
+                -- 找到安全位置，break 跳出循环
+                break
+            end
+        else
+            -- 无有效坐标
             if attempt == maxAttempts then
                 return
             end
-            goto continue_loop
         end
-        x = spawnPos.x
-        y = spawnPos.y
-        local enemyCount = 0
-        
-        -- 检查周围 800 码内是否有与目标玩家敌对的单位
-        Group:new():enumRange(x, y, 800, function(handle)
-            local u = Unit.fromHandle(handle)
-            if not u then return end
-            local ux, uy = u:getX(), u:getY()
-            if ux and uy then
-                local dx = ux - x
-                local dy = uy - y
-                local dist = math.sqrt(dx * dx + dy * dy)
-                if dist < 800 then
-                    local owner = u:getOwner()
-                    -- 判断单位所属玩家是否与目标玩家敌对
-                    if owner and owner:isEnemy(bestPlayer) then
-                        enemyCount = enemyCount + 1
-                    end
-                end
-            end
-        end)
-        
-        if enemyCount == 0 then
-            -- 找到安全位置，break 跳出循环
-            break
-        end
-        
-        -- 尝试次数过多
-        if attempt == maxAttempts then
-            return
-        end
-        ::continue_loop::
     end
     
     -- 获取可用的怪物 ID

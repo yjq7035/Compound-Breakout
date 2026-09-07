@@ -22,26 +22,18 @@ Play1.deathListener = nil
 
 -- 创建 BOSS
 function Play1.createBoss()
-    if Play1.unit then 
-        print("[Layer4Play1] BOSS 已存在", Play1.unit:getTypeName())
-        return 
-    end
+    if Play1.unit then print("[Layer4Play1] BOSS 已存在", Play1.unit:getTypeName()) return end
 
     local p = Player:new(4)
     
     local u = Unit:new(p, Play1.config.unitId, Play1.config.pos.x, Play1.config.pos.y, Play1.config.facing)
-    if not u or not u._handle then 
-        print("[Layer4Play1] Unit creation failed")
-        return 
-    end
+
+    if not u or not u._handle then print("[Layer4Play1] Unit creation failed") return end
 
     -- 设置属性：魔法抗性 = 护甲值
-    u.state.magicAmp = Play1.config.magic or 2000
-    u.state.resMag = u:getState(UNIT_STATE_DEFEND_WHITE)
+    u.state.magicAmp = Play1.config.magic;u.state.resMag = u:getState(UNIT_STATE_DEFEND_WHITE)
 
     Play1.unit = u
-    print(string.format("[Layer4Play1] ✓ BOSS 创建：type=%s hp=%d armor=%d magic=%d", 
-                        u:getType(), u:getLife(), u:getArmor(), u.state.magicAmp))
 end
 
 -- 销毁 BOSS

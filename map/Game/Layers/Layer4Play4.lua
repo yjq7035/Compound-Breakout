@@ -72,21 +72,25 @@ Layer4Play4.bossConfig = {
     finished  = false        -- 玩法 4 是否通关
 }
 
-Layer4Play4.bossUnit     = nil       -- Boss 单位
-Layer4Play4.bossEvent    = nil       -- Boss 死亡监听器
-Layer4Play4.bossAreaRect = nil       -- Boss 区域矩形
+Layer4Play4.bossUnit      = nil      -- Boss 单位
+Layer4Play4.bossDeathListener = nil  -- Boss 死亡监听器
+Layer4Play4.bossAreaRect  = nil      -- Boss 区域矩形
 Layer4Play4.bossActivated = false    -- Boss 战是否已激活
 
 -- ============================================================
 -- §2: 刷怪点管理函数
 -- ============================================================
 
+-- 越界回绕：将索引修正到 [1, #spawnPoints] 范围内（越界则回到 1）
+function Layer4Play4.ensureIndex(idx)
+    if idx > #Layer4Play4.spawnPoints then idx = 1 end
+    return idx
+end
+
 -- 获取当前激活的刷怪点坐标
 function Layer4Play4.getCurrentSpawnPos()
     if not Layer4Play4.initialized then return nil end
-    local idx = Layer4Play4.activeSpawnIndex
-    if idx > #Layer4Play4.spawnPoints then idx = 1 end
-    return Layer4Play4.spawnPoints[idx]
+    return Layer4Play4.spawnPoints[Layer4Play4.ensureIndex(Layer4Play4.activeSpawnIndex)]
 end
 
 -- 切换到下一个刷怪点
@@ -124,9 +128,16 @@ function Layer4Play4.getNextAvailableSpawnPoint()
     end
     
     -- 所有刷怪点都已使用，按顺序循环
-    local idx = Layer4Play4.activeSpawnIndex
-    if idx > #Layer4Play4.spawnPoints then idx = 1 end
-    return Layer4Play4.spawnPoints[idx]
+    return Layer4Play4.spawnPoints[Layer4Play4.ensureIndex(Layer4Play4.activeSpawnIndex)]
+end
+
+-- 统一消息发送（优先走 SystemMessage 彩色消息，否则降级到玩家广播）
+function Layer4Play4.send(msg, color, dur)
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", msg, color}}, dur)
+    else
+        Player.sendAll(msg)
+    end
 end
 
 -- 重置刷怪点状态
@@ -337,13 +348,7 @@ function Layer4Play4.activateOnStart()
     -- 在所有刷怪点批量创建怪物（这不是 Boss 战内容）
     Layer4Play4.batchSpawnAtAllPoints()
 
-    -- 发送系统消息
-    if SystemMessage and SystemMessage.send then
-        SystemMessage.send({{"STR", "玩法 4 已激活！怪物已刷新，前往 Boss 区域触发 Boss 战！", SystemMessage.COLOR_WARN}}, 5.0)
-    else
-        Player.sendAll("玩法 4 已激活！怪物已刷新，前往 Boss 区域触发 Boss 战！")
-    end
-
+    Layer4Play4.send("玩法 4 已激活！怪物已刷新，前往 Boss 区域触发 Boss 战！", SystemMessage and SystemMessage.COLOR_WARN, 5.0)
     print("[4_4] 玩法 4 已激活（玩法3通关）")
 end
 
@@ -372,8 +377,8 @@ function Layer4Play4.createBoss()
     u:setState(UNIT_STATE_LIFE, cfg.hp)
     u:addState(UNIT_STATE_ATTACK_WHITE, cfg.atk)
     u:addState(UNIT_STATE_DEFEND_WHITE, cfg.armor)
-    u:addState(UNIT_STATE_DEFEND_WHITE, cfg.resMag)
     u:setState(UNIT_STATE_MANA, cfg.magic)
+    u.state.resMag = (u.state.resMag or 0) + cfg.resMag
     u.state.attackStr = (u.state.attackStr or 0) + cfg.atkStr
     u.state.magicAmp  = (u.state.magicAmp  or 0) + cfg.magAmp
     u.state.lifeRegen = (u.state.lifeRegen or 0) + cfg.lifeRegen
@@ -475,11 +480,7 @@ function Layer4Play4.checkAndActivateBoss()
         end
 
         -- 发送系统消息
-        if SystemMessage and SystemMessage.send then
-            SystemMessage.send({{"STR", "⚠️ Boss 战激活！所有玩家已进入战斗区域！", SystemMessage.COLOR_WARN}}, 5.0)
-        else
-            Player.sendAll("⚠️ Boss 战激活！所有玩家已进入战斗区域！")
-        end
+        Layer4Play4.send("⚠️ Boss 战激活！所有玩家已进入战斗区域！", SystemMessage and SystemMessage.COLOR_WARN, 5.0)
     end
 end
 
@@ -534,13 +535,13 @@ end
 
 -- 初始化 Boss 死亡监听
 function Layer4Play4.initBossDeathListener()
-    if Layer4Play4.bossEvent then
+    if Layer4Play4.bossDeathListener then
         print("[4_4] Boss 死亡监听已存在，跳过")
         return
     end
 
     print("[4_4] 注册 Boss 死亡监听...")
-    Layer4Play4.bossEvent = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
+    Layer4Play4.bossDeathListener = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
         if Layer4Play4.bossConfig.finished then return end
 
         local dyingHandle = ev.unit
@@ -568,13 +569,9 @@ function Layer4Play4.initBossDeathListener()
                 Layer4.destroyVerticalWallForPlay3()
             end
 
-            if SystemMessage and SystemMessage.send then
-                SystemMessage.send({{"STR", "Boss 已击杀！门已开启，关卡 4 通关！请尽快到门口集合！", SystemMessage.COLOR_SUCCESS}}, 5.0)
-            else
-                Player.sendAll("Boss 已击杀！门已开启，关卡 4 通关！请尽快到门口集合")
-            end
+            Layer4Play4.send("Boss 已击杀！门已开启，关卡 4 通关！请尽快到门口集合！", SystemMessage and SystemMessage.COLOR_SUCCESS, 5.0)
 
-            Layer4Play4.destroyBossEvent()
+            Layer4Play4.destroyBossDeathListener()
         end
     end)
 
@@ -636,12 +633,7 @@ function Layer4Play4.onAllPlayersDied()
     if Layer4Play4.bossConfig.finished then return end
 
     -- 广播团灭消息
-    local msg = "💀 团灭！所有玩家英雄死亡，Boss 战失败！"
-    if SystemMessage and SystemMessage.send then
-        SystemMessage.send({{"STR", msg, SystemMessage.COLOR_FAIL}}, 5.0)
-    else
-        Player.sendAll(msg)
-    end
+    Layer4Play4.send("💀 团灭！所有玩家英雄死亡，Boss 战失败！", SystemMessage and SystemMessage.COLOR_FAIL, 5.0)
 
     -- 销毁 Boss 和竖墙 3
     Layer4Play4.destroyBoss()
@@ -706,10 +698,10 @@ function Layer4Play4.destroyHeroDeathListener()
 end
 
 -- 销毁 Boss 死亡监听
-function Layer4Play4.destroyBossEvent()
-    if Layer4Play4.bossEvent then
-        pcall(function() Layer4Play4.bossEvent:destroy() end)
-        Layer4Play4.bossEvent = nil
+function Layer4Play4.destroyBossDeathListener()
+    if Layer4Play4.bossDeathListener then
+        pcall(function() Layer4Play4.bossDeathListener:destroy() end)
+        Layer4Play4.bossDeathListener = nil
     end
 end
 
@@ -726,7 +718,7 @@ function Layer4Play4.cleanupBossSystem()
     Layer4Play4.bossConfig.finished = false
     Layer4Play4.bossActivated = false
     Layer4Play4.destroyBossEnterListener()
-    Layer4Play4.destroyBossEvent()
+    Layer4Play4.destroyBossDeathListener()
     Layer4Play4.destroyHeroDeathListener()
     Layer4Play4.destroyBoss()
     -- 销毁竖墙 3（index=6）- 使用 Layer4 的统一函数

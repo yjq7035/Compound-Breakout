@@ -246,7 +246,7 @@ local function setInvulnerableAndPause(u, invincible, paused)
     end
 end
 
--- 增强属性：最大生命 +20%、当前生命设为 35% 新上限、护甲 +20%、攻击 +20%
+-- 增强属性：最大生命 +20%、当前生命设为满血（新上限）、护甲 +20%、攻击 +20%
 ---@param u Unit
 local function applyEnhancedStats(u)
     if not u or not u.getState or not u.addState then return end
@@ -259,9 +259,9 @@ local function applyEnhancedStats(u)
     -- 最大生命 +20%
     u:addState(UNIT_STATE_MAX_LIFE, math.floor(maxLife * 0.2))
 
-    -- 当前生命设为新上限的 35%（使用 set 接口强制设置，避免 addState 负值问题）
+    -- 当前生命设为新上限的 100%（满血），使用 set 接口强制设置
     local newMaxLife = maxLife * 1.2
-    local targetLife = math.floor(newMaxLife * 0.35)
+    local targetLife = math.floor(newMaxLife)
     
     -- 优先尝试直接设置当前生命值
     if u.set then
@@ -282,6 +282,14 @@ local function applyEnhancedStats(u)
     u:addState(UNIT_STATE_ATTACK_WHITE, newAttack)
 end
 
+-- Boss 强化：1000 攻击强化（每1000=+100%增伤）+100 物理穿透（由 GameDamage 读取）
+---@param u Unit
+local function applyBossEnhancedStats(u)
+    if not u or not u.state then return end
+    u.state.attackStr = (u.state.attackStr or 0) + 1000
+    u.state.penPhys   = (u.state.penPhys or 0) + 100
+end
+
 local function clearUnits(unitsKey, label)
     local list = Layer2[unitsKey]
     if not list then Layer2[unitsKey] = {} return end
@@ -295,54 +303,44 @@ end
 local function activateUnits(unitsKey, label, tx, ty)
     local list = Layer2[unitsKey]
     if not list then return end
-    
 
-    
     for _, u in ipairs(list) do
-        if not u or not u._handle then 
-            goto continue_loop
+        if u and u._handle then
+            -- 移除无敌
+            if u.setInvulnerable then
+                u:setInvulnerable(false)
+            end
+
+            -- 解除暂停
+            if u.pause then
+                u:pause(false)
+            end
+            if u.setPauseState then
+                u:setPauseState(false)
+            end
+
+            -- 兜底：EXPauseUnit（框架 stun 使用）
+            if cj.IsUnitPaused and cj.IsUnitPaused(u._handle) then
+                cdz.EXPauseUnit(u._handle, false)
+            end
+
+            -- 扩大索敌
+            if u.setAcquireRange then
+                u:setAcquireRange(2500)
+            end
+
+            -- 攻击移动
+            if u.attack then
+                u:attack(tx, ty)
+            elseif u.orderPoint then
+                u:orderPoint("attack", tx, ty)
+            end
         end
-        
-        -- 移除无敌：直接调用 Unit 封装接口
-        if u.setInvulnerable then
-            u:setInvulnerable(false)
-        elseif u._handle then
-            cj.SetUnitInvulnerable(u._handle, false)
-        end
-        
-        -- 解除暂停
-        if u.pause then
-            u:pause(false)
-        elseif u._handle then
-            cj.PauseUnit(u._handle, false)
-        end
-        if u.setPauseState and u.setPauseState then
-            u:setPauseState(false)
-        end
-        
-        -- 兜底：EXPauseUnit（框架 stun 使用）
-        if u._handle and cj.IsUnitPaused and cj.IsUnitPaused(u._handle) then
-            cdz.EXPauseUnit(u._handle, false)
-        end
-        
-        -- 扩大索敌
-        cj.SetUnitAcquireRange(u._handle, 2500)
-        if u.setAcquireRange then
-            u:setAcquireRange(2500)
-        end
-        
-        -- 攻击移动
-        if u.attack then
-            u:attack(tx, ty)
-        elseif u.orderPoint then
-            u:orderPoint("attack", tx, ty)
-        elseif u._handle then
-            cj.IssuePointOrder(u._handle, "attack", tx, ty)
-        end
-        
-        ::continue_loop::
     end
 end
+
+-- 怪物方玩家（0-based pid 4-11，与 Layer4Play2 一致）
+Layer2.MONSTER_PIDS = { 4, 5, 6, 7, 8, 9, 10, 11 }
 
 -- 通用刷怪：创建前自动清理旧的，统一处理无敌/暂停/增强
 local function spawnGeneric(posKey, unitsKey, gridFunc, facing, label, detail, enhanced)
@@ -352,7 +350,11 @@ local function spawnGeneric(posKey, unitsKey, gridFunc, facing, label, detail, e
     -- 允许外部传入覆盖坐标（保持原接口 cx,cy 可选）
     -- 调用方已处理 cx/cy 回落，此处仅兜底
     local positions = gridFunc(cx, cy)
-    local p = Player:new(0)
+    -- 怪物归属玩家 4-11 轮转，避免全部创建给玩家 0
+    local ownerPids = Layer2.MONSTER_PIDS
+    local ownerCount = #ownerPids
+    local ownerSeq = 0
+    local p = nil
 
     clearUnits(unitsKey, label)
     Layer2[unitsKey] = {}
@@ -363,6 +365,10 @@ local function spawnGeneric(posKey, unitsKey, gridFunc, facing, label, detail, e
     local needPaused     = Layer2[pausedKey]
 
     for _, pos in ipairs(positions) do
+        -- 轮换归属玩家 4-11
+        local ownerPid = ownerPids[(ownerSeq % ownerCount) + 1]
+        ownerSeq = ownerSeq + 1
+        p = Player:new(ownerPid)
         local u = Unit:new(p, pos.id, pos.x, pos.y, facing)
         if u then
             table.insert(Layer2[unitsKey], u)
@@ -371,9 +377,6 @@ local function spawnGeneric(posKey, unitsKey, gridFunc, facing, label, detail, e
         end
     end
 
-    -- local count = #Layer2[unitsKey]
-    -- local suffix = enhanced and " (默认无敌且暂停，朝向 " .. facing .. "，增强属性)" or string.format(" (默认无敌且暂停，朝向 %d)", facing)
-    -- detail 已包含单位构成说明
     return Layer2[unitsKey]
 end
 
@@ -410,9 +413,6 @@ function Layer2.destroyWalls()
     local n = #Layer2.handles
     Layer2.handles = {}
     Layer2.wallMap = {}
-    if n > 0 then
-        --print("[Layer2] 第二关卡墙体已移除 count=" .. n)
-    end
 end
 
 function Layer2.getCount() return #Layer2.handles end
@@ -431,13 +431,8 @@ function Layer2.removeWallByIndex(index, reason)
     end
     local wName = (w and w.name) or ("index=" .. tostring(index))
     if h then
-        -- 使用 Unit 封装移除（如果封装层提供）
-        if h.destroy then
-            pcall(function() h:destroy() end)
-        else
-            -- 兜底：使用底层 API 移除
-            pcall(function() cj.RemoveDestructable(h) end)
-        end
+        -- 墙体为底层 jhandle_t（cj.CreateDestructable 返回），直接用底层 API 移除
+        pcall(function() cj.RemoveDestructable(h) end)
         Layer2.wallMap[index] = nil
         for k, vh in ipairs(Layer2.handles) do
             if vh == h then table.remove(Layer2.handles, k) break end
@@ -482,6 +477,11 @@ function Layer2.removeWallByIndex(index, reason)
                 end
                 return true
             end
+        end
+        -- 兜底失败：输出诊断日志
+        if SystemMessage and SystemMessage.send then
+            local wallMsg = string.format("力量墙删除失败 - %s - %s (wallMap[index]=%s, found=0)", reason or wName, wName, tostring(Layer2.wallMap[index]))
+            SystemMessage.send({{"STR", wallMsg, SystemMessage.COLOR_WARN}}, 3.0)
         end
         return false
     end
@@ -784,7 +784,7 @@ function Layer2.clearMobSpawn8()   clearUnits("mobSpawn8Units", "刷怪点 8") e
 function Layer2.destroyMobSpawn8() Layer2.clearMobSpawn8() end
 function Layer2.activateMobSpawn8(tx, ty) activateUnits("mobSpawn8Units", "刷怪点 8", tx, ty) end
 
--- 刷怪点 9（增强，原8号，已对调 2026-08-26，原10号->8）
+-- 刷怪点 9（增强，原8号，已对调 2026-08-26，原10号->8
 function Layer2.spawnMobSpawn9(cx, cy)
     if cx == nil then cx = Layer2.mobSpawn9Pos.x end
     if cy == nil then cy = Layer2.mobSpawn9Pos.y end
@@ -822,12 +822,17 @@ function Layer2.spawnMobSpawn11(cx, cy)
     Layer2.mobSpawn11Pos.x, Layer2.mobSpawn11Pos.y = cx, cy
     local ret = spawnGeneric("mobSpawn11Pos", "mobSpawn11Units", Layer2.calcMobSpawn11Grid, Layer2.mobSpawn11Facing,
         "刷怪点 11", "nn13(1 个：中心)", false)
+    -- Boss 专属强化：1000 攻击强化 + 100 物理穿透
+    for _, u in ipairs(ret) do applyBossEnhancedStats(u) end
     Layer2.mobSpawn11Pos.x, Layer2.mobSpawn11Pos.y = ox, oy
     return ret
 end
-function Layer2.clearMobSpawn11()   clearUnits("mobSpawn11Units", "刷怪点 11") end
-function Layer2.destroyMobSpawn11() Layer2.clearMobSpawn11() end
-function Layer2.activateMobSpawn11(tx, ty) activateUnits("mobSpawn11Units", "刷怪点 11", tx, ty) end
+function Layer2.clearMobSpawn11()   
+clearUnits("mobSpawn11Units", "刷怪点 11") end
+function Layer2.destroyMobSpawn11() 
+Layer2.clearMobSpawn11() end
+function Layer2.activateMobSpawn11(tx, ty) 
+activateUnits("mobSpawn11Units", "刷怪点 11", tx, ty) end
 
 -- ============================================================
 -- §9 批量操作
@@ -1049,25 +1054,34 @@ end
 
 -- 11区Boss死亡监听：击杀 nn13 时销毁12号墙并创建通关区域
 local function registerBoss11DeathEvent()
-    -- 清理旧事件
+    -- 清理旧的 Boss 死亡事件（避免重复注册导致泄漏）
+    -- 1) 从 Layer2.events 列表里移除并销毁旧事件
+    local kept = {}
     for _, e in ipairs(Layer2.events) do
-        if e and e._eventType == EVENT_PLAYER_UNIT_DEATH then
-            -- 保留其他死亡事件，仅清理需重建的（此处统一清理后重建）
+        if e and e._eventType == EVENT_PLAYER_UNIT_DEATH and e._bossDeath then
+            if e.destroy then pcall(function() e:destroy() end) end
+        else
+            table.insert(kept, e)
         end
     end
-    local deathEv = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
+    Layer2.events = kept
+
+    local function handleBossDeath(ev)
         if Layer2.finished then return end
         if Layer2.boss11Killed then return end
         local dying = ev.unit
         if not dying then return end
+        if not cj.IsUnit(dying) or cj.GetUnitTypeId(dying) == 0 then return end
         -- 使用 Unit 封装获取类型 ID（如果提供）
         local tid = nil
-        if dying and dying.getTypeId then
+        if dying.getTypeId then
             tid = dying:getTypeId()
         else
             tid = cj.GetUnitTypeId(dying)
         end
         local tidStr = i2c(tid)
+        -- 诊断：仅在 Boss 未击杀时输出，便于确认死亡事件是否命中 nn13
+        print("[Layer2] Boss死亡单位类型=" .. tostring(tidStr) .. " (期望=nn13)")
         if tidStr ~= "nn13" then return end
         -- 距离校验：确保是 11 区 Boss（-8720.5,-13157.2 附近 500 码）或通过单位句柄匹配
         local dx, dy = nil, nil
@@ -1088,20 +1102,42 @@ local function registerBoss11DeathEvent()
         if SystemMessage and SystemMessage.send then
             SystemMessage.send({{"STR", "11 区 Boss 已击杀", SystemMessage.COLOR_SUCCESS}}, 3.0)
         end
-        -- 销毁12号墙（横墙 2）
-        Layer2.removeWallByIndex(12, "11区Boss击杀")
-        -- --print("[Layer2] 12号墙已移除（11区Boss击杀）")
+        print("[Layer2] Boss击杀: 开始处理通关流程")
+        print("[Layer2] 诊断: 准备移除12号墙(横墙), wallMap[12]=" .. tostring(Layer2.wallMap[12]) .. " handles数量=" .. #Layer2.handles)
+        print("[Layer2] 诊断: walls[12]=" .. tostring(Layer2.walls[12] and Layer2.walls[12].name or "nil"))
+        -- 销毁12号墙（横墙）
+        local removed = Layer2.removeWallByIndex(12, "11区Boss击杀")
+        print("[Layer2] 12号墙移除结果=" .. tostring(removed) .. " wallMap[12]=" .. tostring(Layer2.wallMap[12]))
+        
+        if not removed then
+            print("[Layer2] 警告: 12号墙移除失败，尝试使用兜底逻辑")
+        end
 
         -- 清理该Boss残留
         Layer2.clearMobSpawn11()
+        print("[Layer2] 诊断: 已清理11区刷怪点残留")
 
         -- 创建通关区域
         Layer2.createExitRegion()
+        print("[Layer2] 诊断: 通关区域已创建")
         if SystemMessage and SystemMessage.send then
             SystemMessage.send({{"STR", "通关区域已开启 - 前往 -9475.7,-13610.3", SystemMessage.COLOR_WARN}}, 3.0)
         end
-    end)
-    table.insert(Layer2.events, deathEv)
+    end
+
+    -- 薄包装：pcall 保护 + 诊断日志，确保任何异常都不致波及事件系统
+    local function onBossDeath(ev)
+        local ok, err = pcall(handleBossDeath, ev)
+        if not ok then
+            print("[Layer2][WARN] Boss11死亡回调异常: " .. tostring(err))
+        end
+    end
+
+    local deathEv = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, onBossDeath)
+    if deathEv then
+        deathEv._bossDeath = true
+        table.insert(Layer2.events, deathEv)
+    end
 end
 
 function Layer2.start()
@@ -1167,11 +1203,11 @@ function Layer2.createTriggerAreaBL()
     
     -- 设置单位进入事件（回调接收 Event 对象，通过 self.unit 获取进入的单位）
     triggerEventBL = Event:newRect(triggerAreaBL, function(ev)
-        local unit = ev.unit or ev._unit
-        if unit == nil then
-            unit = cj.GetEnteringUnit()
-        end
-        if unit == nil then return end
+        local unit = ev.unit
+        -- if unit == nil then
+        --     unit = cj.GetEnteringUnit()
+        -- end
+        if unit == nil or not cj.IsUnit(unit) then return end
         
         -- 获取单位所属玩家
         local player = Player.fromHandle(cj.GetOwningPlayer(unit))
@@ -1256,30 +1292,23 @@ function Layer2.createMobSpawnRects()
         
         -- 设置单位进入事件（使用 event 创建区域事件）
         local event = Event:newRect(rect, function(ev)
-            local unit = ev.unit or ev._unit
-            if unit == nil then
-                unit = cj.GetEnteringUnit()
-            end
-            if unit == nil then return end
-            
-            -- 获取单位所属玩家
-            local player = Player.fromHandle(cj.GetOwningPlayer(unit))
-            if not player or not player:isUser() then return end
-            
+            local unit = Unit.fromHandle(ev.unit)
+            -- 单位可能为 nil（非单位进入或句柄无效），需保护后再取值
             local tx, ty = nil, nil
             if unit and unit.getX then
                 tx, ty = unit:getX(), unit:getY()
-            else
-                tx = cj.GetUnitX(unit)
-                ty = cj.GetUnitY(unit)
             end
-            -- 按 index 精确删除绑定墙
+            local isHero = unit and unit:isType(UNIT_TYPE_HERO) or false
+            local ownerPid = unit and unit:getOwner() and unit:getOwner():getId() or -1
+            -- 无论单位取值是否成功，都必须先销毁绑定墙（防止回调异常导致墙未销毁）
             local ok = Layer2.removeWallByIndex(curDef.id, curDef.name)
-            print(string.format("[Layer2] 触发前 wallMap[%s]=%s", tostring(curDef.id), tostring(Layer2.wallMap[curDef.id])))
-            Layer2.activateMobSpawn(curDef.id, tx, ty)
+            local r = mobSpawnRects[curDef.id] -- 一次性触发：销毁该区域与事件，防止重复触发
 
-            -- 一次性触发：销毁该区域与事件，防止重复触发
-            local r = mobSpawnRects[curDef.id]
+            local isMonsterPlayer = false
+            if not isHero and not isMonsterPlayer then return end
+            for _, pid in ipairs(Layer2.MONSTER_PIDS) do if ownerPid == pid then isMonsterPlayer = true break end end
+            Layer2.activateMobSpawn(curDef.id, tx, ty)
+            
             if r then
                 --print(string.format("[Layer2] 刷怪区域 %s 已触发，销毁区域防止重复", curDef.name))
                 Event:destroyRect(r)
@@ -1288,12 +1317,6 @@ function Layer2.createMobSpawnRects()
                 mobSpawnEvents[curDef.id] = nil
             end
         end)
-        
-        -- if event then
-        --     --print(string.format("[Layer2] 刷怪区域 %s (%.1f,%.1f) 触发器已启动", curDef.name, cx, cy))
-        -- else
-        --     --print(string.format("[Layer2] 刷怪区域 %s 创建失败", curDef.name))
-        -- end
         
         -- 存储句柄
         mobSpawnRects[curDef.id] = rect
@@ -1325,9 +1348,6 @@ function Layer2.activateMobSpawn(id, tx, ty)
     local spawnFuncName = "activateMobSpawn" .. id
     local func = Layer2[spawnFuncName]
     if func then func(tx, ty) end
-    -- else
-        --print(string.format("[Layer2] 未找到刷怪点 %d 的激活函数", id))
-    -- end
 end
 
 return Layer2
