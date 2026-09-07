@@ -21,7 +21,8 @@ Unit._handle = nil
 Unit._index = nil
 --- 单位ID
 Unit._id = nil
-
+--- 单位类型
+Unit._type = nil
 
 Unit.state = {
     -- 物理暴击率

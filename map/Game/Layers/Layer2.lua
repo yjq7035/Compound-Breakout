@@ -973,76 +973,35 @@ function Layer2.onAllPlayersEntered()
     for pid = 0, 3 do
         local p = Player:new(pid)
         if p:isPlaying() and p:isUser() then
-            -- 使用 Group 封装创建单位组（如果封装层提供）
-            local g = nil
-            if Group then
-                g = Group:new()
-            else
-                g = cj.CreateGroup()
-            end
-            -- 枚举玩家单位
-            if Group and Group.EnumUnitsOfPlayer then
-                Group.EnumUnitsOfPlayer(g, p._handle, nil)
-            else
-                cj.GroupEnumUnitsOfPlayer(g, p._handle, nil)
-            end
-            local u = nil
-            if Group and Group.FirstUnit then
-                u = Group.FirstUnit(g)
-            else
-                u = cj.FirstOfGroup(g)
-            end
-            while u ~= nil do
-                if u:IsUnitType(UNIT_TYPE_HERO) then
+            -- 使用 Group 封装 + enumPlayer 枚举玩家单位（纯 Lua 单位组，勿当作原生 handle）
+            local g = Group:new()
+            g:enumPlayer(p._handle)
+            g:forEach(function(u)
+                if cj.IsUnitType(u, UNIT_TYPE_HERO) then
                     -- 优先用 Unit 封装的坐标移动，确保与项目 OOP 层一致
                     local moved = false
-                    if Unit and Unit.fromHandle then
-                        local ok, unitObj = pcall(Unit.fromHandle, u)
-                        if ok and unitObj and unitObj.setPosition then
-                            local ok2 = pcall(function() unitObj:setPosition(ex, ey) end)
-                            if ok2 then moved = true end
-                        end
+                    local unitObj = Unit.fromHandle(u)
+                    if unitObj and unitObj.setPosition then
+                        unitObj:setPosition(ex, ey)
+                        moved = true
                     end
                     if not moved then
-                        -- 使用 Unit 封装设置坐标（如果提供）
-                        if u.setPosition then
-                            pcall(function() u:setPosition(ex, ey) end)
-                        end
                         -- 兜底：使用底层 API
                         pcall(cj.SetUnitPosition, u, ex, ey)
                         pcall(cj.SetUnitX, u, ex)
                         pcall(cj.SetUnitY, u, ey)
                     end
-                    -- 设置寻路
-                    if u.setPathing then
-                        pcall(function() u:setPathing(true) end)
+                    -- 恢复寻路（传送后确保英雄可移动）
+                    if unitObj and unitObj.setPathing then
+                        unitObj:setPathing(true)
                     end
                     pcall(cj.SetUnitPathing, u, true)
                     -- 镜头跟随：异步操作，需包裹异步判断
-                    if cj.GetLocalPlayer() == p._handle then
-                        if Camera and Camera.panTo then
-                            pcall(function() Camera.panTo(ex, ey) end)
-                        end
+                    if cj.GetLocalPlayer() == p._handle and Camera and Camera.panTo then
+                        pcall(function() Camera.panTo(ex, ey) end)
                     end
                 end
-                -- 移除单位
-                if Group and Group.RemoveUnit then
-                    Group.RemoveUnit(g, u)
-                else
-                    cj.GroupRemoveUnit(g, u)
-                end
-                -- 获取下一个单位
-                if Group and Group.FirstUnit then
-                    u = Group.FirstUnit(g)
-                else
-                    u = cj.FirstOfGroup(g)
-                end
-            end
-            if Group and Group.Destroy then
-                Group.Destroy(g)
-            else
-                cj.DestroyGroup(g)
-            end
+            end)
         end
     end
 
@@ -1054,90 +1013,15 @@ end
 
 -- 11区Boss死亡监听：击杀 nn13 时销毁12号墙并创建通关区域
 local function registerBoss11DeathEvent()
-    -- 清理旧的 Boss 死亡事件（避免重复注册导致泄漏）
-    -- 1) 从 Layer2.events 列表里移除并销毁旧事件
-    local kept = {}
-    for _, e in ipairs(Layer2.events) do
-        if e and e._eventType == EVENT_PLAYER_UNIT_DEATH and e._bossDeath then
-            if e.destroy then pcall(function() e:destroy() end) end
-        else
-            table.insert(kept, e)
+    print("注册 nn13 死亡事件")
+    Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
+        local u = Unit.fromHandle(ev.unit)
+        if u._type == "nn13" then
+            print("nn13 死亡")
+            Layer2.removeWallByIndex(12, "11区Boss击杀")
+            Layer2.createExitRegion()
         end
-    end
-    Layer2.events = kept
-
-    local function handleBossDeath(ev)
-        if Layer2.finished then return end
-        if Layer2.boss11Killed then return end
-        local dying = ev.unit
-        if not dying then return end
-        if not cj.IsUnit(dying) or cj.GetUnitTypeId(dying) == 0 then return end
-        -- 使用 Unit 封装获取类型 ID（如果提供）
-        local tid = nil
-        if dying.getTypeId then
-            tid = dying:getTypeId()
-        else
-            tid = cj.GetUnitTypeId(dying)
-        end
-        local tidStr = i2c(tid)
-        -- 诊断：仅在 Boss 未击杀时输出，便于确认死亡事件是否命中 nn13
-        print("[Layer2] Boss死亡单位类型=" .. tostring(tidStr) .. " (期望=nn13)")
-        if tidStr ~= "nn13" then return end
-        -- 距离校验：确保是 11 区 Boss（-8720.5,-13157.2 附近 500 码）或通过单位句柄匹配
-        local dx, dy = nil, nil
-        if dying and dying.getX then
-            dx, dy = dying:getX(), dying:getY()
-        else
-            dx = cj.GetUnitX(dying)
-            dy = cj.GetUnitY(dying)
-        end
-        local isNear = distance(dx, dy, Layer2.mobSpawn11Pos.x, Layer2.mobSpawn11Pos.y) < 600
-        local isHandleMatch = false
-        for _, u in ipairs(Layer2.mobSpawn11Units or {}) do
-            if u and u._handle == dying then isHandleMatch = true; break end
-        end
-        if not isNear and not isHandleMatch then return end
-
-        Layer2.boss11Killed = true
-        if SystemMessage and SystemMessage.send then
-            SystemMessage.send({{"STR", "11 区 Boss 已击杀", SystemMessage.COLOR_SUCCESS}}, 3.0)
-        end
-        print("[Layer2] Boss击杀: 开始处理通关流程")
-        print("[Layer2] 诊断: 准备移除12号墙(横墙), wallMap[12]=" .. tostring(Layer2.wallMap[12]) .. " handles数量=" .. #Layer2.handles)
-        print("[Layer2] 诊断: walls[12]=" .. tostring(Layer2.walls[12] and Layer2.walls[12].name or "nil"))
-        -- 销毁12号墙（横墙）
-        local removed = Layer2.removeWallByIndex(12, "11区Boss击杀")
-        print("[Layer2] 12号墙移除结果=" .. tostring(removed) .. " wallMap[12]=" .. tostring(Layer2.wallMap[12]))
-        
-        if not removed then
-            print("[Layer2] 警告: 12号墙移除失败，尝试使用兜底逻辑")
-        end
-
-        -- 清理该Boss残留
-        Layer2.clearMobSpawn11()
-        print("[Layer2] 诊断: 已清理11区刷怪点残留")
-
-        -- 创建通关区域
-        Layer2.createExitRegion()
-        print("[Layer2] 诊断: 通关区域已创建")
-        if SystemMessage and SystemMessage.send then
-            SystemMessage.send({{"STR", "通关区域已开启 - 前往 -9475.7,-13610.3", SystemMessage.COLOR_WARN}}, 3.0)
-        end
-    end
-
-    -- 薄包装：pcall 保护 + 诊断日志，确保任何异常都不致波及事件系统
-    local function onBossDeath(ev)
-        local ok, err = pcall(handleBossDeath, ev)
-        if not ok then
-            print("[Layer2][WARN] Boss11死亡回调异常: " .. tostring(err))
-        end
-    end
-
-    local deathEv = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, onBossDeath)
-    if deathEv then
-        deathEv._bossDeath = true
-        table.insert(Layer2.events, deathEv)
-    end
+    end)
 end
 
 function Layer2.start()

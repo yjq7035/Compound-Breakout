@@ -78,6 +78,16 @@ Layer4Play4.bossAreaRect  = nil      -- Boss 区域矩形
 Layer4Play4.bossActivated = false    -- Boss 战是否已激活
 
 -- ============================================================
+-- §5: 通关传送区域配置
+-- ============================================================
+-- 通关后传送至关卡 5 入口坐标
+-- 通关传送区域：中心 -10075, 5200，宽高 300
+Layer4Play4.exitCenter = { x = -10075.0, y = 5200.0, w = 300, h = 300, name = "关卡 4 通关传送区域" }
+Layer4Play4.exitRect = nil           -- 通关传送区域矩形
+Layer4Play4.exitEvent = nil          -- 通关传送事件
+Layer4Play4.enteredPlayers = {}      -- 已记录进入的玩家
+
+-- ============================================================
 -- §2: 刷怪点管理函数
 -- ============================================================
 
@@ -561,7 +571,7 @@ function Layer4Play4.initBossDeathListener()
             Layer4Play4.bossConfig.finished = true
             print(string.format("[4_4] ✓ Boss 死亡 type=%s", tostring(typeCode)))
 
-            -- 玩法 4 通关：销毁 Boss，销毁竖墙 3，发送消息，清理资源
+            -- 玩法 4 通关：销毁 Boss，销毁竖墙 3，创建通关传送区域
             Layer4Play4.destroyBoss()
 
             -- 销毁竖墙 3（index=6）- 使用 Layer4 的统一函数
@@ -569,7 +579,23 @@ function Layer4Play4.initBossDeathListener()
                 Layer4.destroyVerticalWallForPlay3()
             end
 
+            -- 销毁横墙 3（index=3）- 关闭所有玩法 4 内容
+            local h3 = Layer4 and Layer4.wallMap[3]
+            if h3 then
+                pcall(function() cj.RemoveDestructable(h3) end)
+                if Layer4 and Layer4.handles then
+                    for i, handle in ipairs(Layer4.handles) do 
+                        if handle == h3 then table.remove(Layer4.handles, i) break end 
+                    end
+                end
+                if Layer4 then Layer4.wallMap[3] = nil end
+                print("[4_4] 横墙 3 已销毁")
+            end
+
             Layer4Play4.send("Boss 已击杀！门已开启，关卡 4 通关！请尽快到门口集合！", SystemMessage and SystemMessage.COLOR_SUCCESS, 5.0)
+
+            -- 创建通关传送区域
+            Layer4Play4.createExitRegion()
 
             Layer4Play4.destroyBossDeathListener()
         end
@@ -730,6 +756,168 @@ function Layer4Play4.cleanupBossSystem()
     print("[4_4] Boss 战斗系统清理完成")
 end
 
+--|=============================================================
+--[§5: 通关传送区域管理]
+--|=============================================================
+
+-- 创建通关传送区域（Boss 死亡后调用）
+function Layer4Play4.createExitRegion()
+    if Layer4Play4.exitRect then return end
+    
+    local cx, cy, w, h = Layer4Play4.exitCenter.x, Layer4Play4.exitCenter.y, Layer4Play4.exitCenter.w, Layer4Play4.exitCenter.h
+    Layer4Play4.exitRect = Rect:newCenter(cx, cy, w, h)
+    Layer4Play4.enteredPlayers = {}
+    
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", string.format("通关传送门已开启 - 前往 (%.1f, %.1f)", cx, cy), SystemMessage.COLOR_WARN}}, 3.0)
+    end
+    
+    -- 监听玩家进入传送区域
+    local function onEnter(ev)
+        if Layer4Play4.bossConfig.finished ~= true then return end
+        local entering = ev.unit or ev._unit or cj.GetEnteringUnit()
+        if not entering then return end
+        local owner = Player.fromHandle(cj.GetOwningPlayer(entering))
+        if not owner or not owner:isUser() then return end
+        if not cj.IsUnitType(entering, UNIT_TYPE_HERO) then return end
+        local pid = owner:getId()
+        if pid < 0 or pid > 3 then return end
+        
+        local isNew = false
+        if not Layer4Play4.enteredPlayers[pid] then
+            Layer4Play4.enteredPlayers[pid] = true
+            isNew = true
+        end
+        
+        if isNew and SystemMessage and SystemMessage.send then
+            local playerName = owner:getName()
+            if not playerName or playerName == "" then playerName = string.format("玩家%d", pid + 1) end
+            local need = Layer4Play4.getOnlineCount()
+            local have = Layer4Play4.getEnteredCount()
+            if have < need then
+                local remain = need - have
+                SystemMessage.send({{"STR", string.format("玩家 %s 已进入传送门就绪 [%d/%d]，等待其他 %d 名玩家进入...", playerName, have, need, remain), SystemMessage.COLOR_WARN}}, 3.0)
+            end
+        end
+        
+        local need = Layer4Play4.getOnlineCount()
+        local have = Layer4Play4.getEnteredCount()
+        if have >= need and need > 0 then
+            Layer4Play4.onAllPlayersEntered()
+        end
+    end
+    
+    Layer4Play4.exitEvent = Event:newRect(Layer4Play4.exitRect, onEnter)
+    if Layer4Play4.exitEvent then
+        -- 将事件插入到 events 列表（如果存在）
+        if not Layer4Play4.events then
+            Layer4Play4.events = {}
+        end
+        table.insert(Layer4Play4.events, Layer4Play4.exitEvent)
+    end
+    
+    print(string.format("[4_4] ✓ 通关传送区域已创建：(%.1f, %.1f)", cx, cy))
+end
+
+-- 销毁通关传送区域
+function Layer4Play4.destroyExitRegion()
+    local rect = Layer4Play4.exitRect
+    Layer4Play4.exitRect = nil
+    Layer4Play4.exitEvent = nil
+    Layer4Play4.enteredPlayers = {}
+    if rect then
+        pcall(function() Event:destroyRect(rect) end)
+        pcall(function() rect:destroy() end)
+    end
+    print("[4_4] 通关传送区域已销毁")
+end
+
+-- 所有玩家进入传送区域后的处理
+function Layer4Play4.onAllPlayersEntered()
+    -- 防止重复触发
+    if Layer4Play4._teleporting then return end
+    Layer4Play4._teleporting = true
+    
+    if SystemMessage and SystemMessage.send then
+        SystemMessage.send({{"STR", "关卡 4 通关！", SystemMessage.COLOR_SUCCESS}}, 3.0)
+    else
+        Player.sendAll("关卡 4 通关！")
+    end
+    
+    -- 获取关卡 5 入口坐标（如果有的话）
+    local entry = (Layer5 and Layer5.entryPos) or Layer4.entryPos or { x = -8518.2, y = 747.9 }
+    local ex, ey = entry.x, entry.y
+    
+    for pid = 0, 3 do
+        local p = Player:new(pid)
+        if p:isPlaying() and p:isUser() then
+            local g = Group:new()
+            g:enumPlayer(p._handle)
+            g:forEach(function(u)
+                if cj.IsUnitType(u, UNIT_TYPE_HERO) then
+                    local unitObj = Unit.fromHandle(u)
+                    if unitObj and unitObj.setPosition then
+                        unitObj:setPosition(ex, ey)
+                    end
+                end
+                cj.SetUnitX(u, ex)
+                cj.SetUnitY(u, ey)
+                cj.SetUnitPosition(u, ex, ey)
+                -- 本地镜头跟随
+                if cj.GetLocalPlayer() == p._handle and Camera and Camera.panTo then
+                    pcall(function() Camera.panTo(ex, ey) end)
+                end
+            end)
+        end
+    end
+    
+    -- 设置当前关卡为 5（如果存在 Layer5）
+    if GameInit then
+        GameInit.currentLayer = 5
+    end
+    
+    -- 关闭玩法 4 所有相关内容
+    Layer4Play4.cleanup()
+    -- 销毁通关传送区域
+    Layer4Play4.destroyExitRegion()
+    
+    print("[4_4] 关卡 4 通关，准备进入关卡 5")
+    
+    -- 加载关卡 5（如果存在）
+    if GameInit then
+        Timer:new(1, false, function()
+            if GameInit and GameInit.startLayer5 then
+                GameInit.startLayer5()
+            end
+        end)
+    end
+end
+
+-- 获取在线玩家数
+function Layer4Play4.getOnlineCount()
+    local count = 0
+    for pid = 0, 3 do
+        local p = Player:new(pid)
+        if p and p:isUser() and p:isPlaying() then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+-- 获取已进入传送区域玩家数
+function Layer4Play4.getEnteredCount()
+    local count = 0
+    for _ in pairs(Layer4Play4.enteredPlayers) do
+        count = count + 1
+    end
+    return count
+end
+
+--|=============================================================
+--[§5: 清理玩法 4 时销毁传送区域]
+--|=============================================================
+
 -- 清理玩法 4
 function Layer4Play4.cleanup()
     Layer4Play4.initialized = false
@@ -741,6 +929,10 @@ function Layer4Play4.cleanup()
             Layer4.destroyVerticalWallForPlay3()
         end
         Layer4Play4.bossActivated = false
+    end
+    -- 销毁通关传送区域
+    if Layer4Play4.exitRect then
+        Layer4Play4.destroyExitRegion()
     end
     print("[4_4] 玩法 4 清理完成")
 end

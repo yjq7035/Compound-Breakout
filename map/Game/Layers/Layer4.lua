@@ -351,9 +351,14 @@ function Layer4.start()
         Player.sendAll("关卡 4 已启动")
     end
     Layer4.createWalls()
-    -- 激活玩法 4（刷怪 + 注册 Boss 进入监听，Boss 由玩家进入区域后激活）
-    if Layer4Play4 then
-        Layer4Play4.activateOnStart()
+    -- 激活玩法 1（默认玩法）
+    local ok, Play1 = pcall(require, "Game.Layers.Layer4Play1")
+    if ok and Play1 and Play1.start then
+        Play1.start()
+    end
+    -- 激活玩法 2（刷怪+钥匙玩法）
+    if Layer4Play2 and Layer4Play2.start then
+        Layer4Play2.start()
     end
 end
 

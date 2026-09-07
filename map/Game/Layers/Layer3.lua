@@ -297,18 +297,22 @@ function Layer3.onSurvivalTimeout()
     if Layer3.finished then return end
     Layer3.finished = true
     -- 生存挑战结束：停止刷怪计时器（单位与记录留待关卡结束时统一清理）
-    Layer3.stopMobSpawnSystem("生存挑战完成")
-    if SystemMessage and SystemMessage.send then
-        SystemMessage.send({{"STR", "生存挑战完成！关卡 3 通关！", SystemMessage.COLOR_SUCCESS}}, 3.0)
-    else
-        Player.sendAll("生存挑战完成！关卡 3 通关！")
-    end
-    -- 移除两堵墙
-    Layer3.removeWallByIndex(1, "生存完成")
-    Layer3.removeWallByIndex(2, "生存完成")
+    pcall(function() Layer3.stopMobSpawnSystem("生存挑战完成") end)
+    -- ========== 修复：移除当前关卡的所有怪物（新增）==========
+    pcall(function() Layer3.clearMobSpawnUnits("生存完成") end)
+    pcall(function()
+        if SystemMessage and SystemMessage.send then
+            SystemMessage.send({{"STR", "生存挑战完成！关卡 3 通关！", SystemMessage.COLOR_SUCCESS}}, 3.0)
+        else
+            Player.sendAll("生存挑战完成！关卡 3 通关！")
+        end
+    end)
+    -- 移除两堵墙（各自独立保护，防止一堵失败导致另一堵和传送门创建被跳过）
+    pcall(function() Layer3.removeWallByIndex(1, "生存完成") end)
+    pcall(function() Layer3.removeWallByIndex(2, "生存完成") end)
     -- 清理事件矩形（若仍存在）
-    Layer3.destroyEventRect("生存完成")
-    -- 创建通关传送区域
+    pcall(function() Layer3.destroyEventRect("生存完成") end)
+    -- 创建通关传送区域（关键：必须执行，前面的失败不能阻止传送门创建）
     Layer3.createExitRegion()
 end
 
