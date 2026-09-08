@@ -235,6 +235,11 @@ function Layer4Play3.initPlay3BossDeathListener()
         else
             Player.sendAll("隐藏BOSS 已击杀，玩法 3 通关！竖墙已销毁！")
         end
+        
+        -- 玩法 3 通关：激活玩法 4
+        if Layer4Play4 and Layer4Play4.activateOnStart then
+            Layer4Play4.activateOnStart()
+        end
     end)
 end
 

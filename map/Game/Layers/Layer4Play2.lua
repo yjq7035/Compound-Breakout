@@ -867,6 +867,8 @@ function Layer4Play2.start()
     Layer4Play2.ensureMobDeathListener()
     -- 创建横墙2（与关卡关联，随玩法2激活而创建）
     Layer4.createPlay2Wall()
+    -- 注册钥匙玩法监听（通关门进入检测 + 拾取提示），缺少此调用会导致拿钥匙进门不触发
+    Layer4Play2.ensurePlay2KeyListeners()
 end
 
 function Layer4Play2.shutdown()

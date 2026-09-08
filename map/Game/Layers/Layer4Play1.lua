@@ -106,9 +106,9 @@ function Play1.ensureDeathListener()
                 Player.sendAll("玩法 1 通关！横墙 1 已摧毁")
             end
             
-            -- 销毁监听器（可选，如果需要）
-            -- Play1.deathListener:destroy()
-            -- Play1.deathListener = nil
+            -- 玩法 1 通关：销毁死亡监听器（属于玩法 1 的内容，通关后不再需要）
+            Play1.deathListener:destroy()
+            Play1.deathListener = nil
         else
             print("[Layer4Play1] 死亡监听：已触发过，跳过处理")
         end
