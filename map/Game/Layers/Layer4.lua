@@ -405,16 +405,6 @@ end
 --[§2b: 刷怪逻辑工具函数（供 Layer4Play2 使用）]
 --|=============================================================
 
--- 启动刷怪计时器（间隔 1.5 秒，周期性刷怪）
-function Layer4.startMobSpawnerTimer()
-    -- 此函数已移至 Layer4Play2.startMobSpawnerTimer
-end
-
--- 停止刷怪计时器
-function Layer4.stopMobSpawnerTimer()
-    -- 此函数已移至 Layer4Play2.stopMobSpawnerTimer
-end
-
 -- 随机获取一个怪物 ID
 function Layer4.getRandomMobId()
     local ids = Layer4.registeredMobIds
@@ -439,11 +429,6 @@ function Layer4.generateRandomSpawnPos()
     return { x = x, y = y, rect = rect }
 end
 
--- 在刷怪区 A 或 B 的随机位置生成一个单位
-function Layer4.spawnOneMob()
-    -- 此函数已移至 Layer4Play2.spawnOneMob
-end
-
 -- 统计指定玩家的存活单位数（不包括 BOSS）
 function Layer4.countAliveUnits(p)
     if not p then return 0 end
@@ -457,25 +442,6 @@ function Layer4.countAliveUnits(p)
         end
     end)
     return count
-end
-
--- 死亡监听：当刷怪单位死亡时，从句柄列表中移除
-function Layer4.onMobDeath(handle)
-    -- 此函数已移至 Layer4Play2.onMobDeath
-end
-
--- 注册死亡监听
-function Layer4.ensureMobDeathListener()
-    if Layer4.mobDeathListener then return end
-    Layer4.mobDeathListener = Event:new(nil, EVENT_PLAYER_UNIT_DEATH, function(ev)
-        if Layer4.finished then return end
-        local handle = ev.unit
-        if not handle then return end
-        -- 只处理本玩法刷出的怪（玩家英雄 / 各 BOSS 死亡交给各自的监听处理）
-        -- play2MobHandles 已移至 Layer4Play2，此处不处理
-        -- 保留此监听器以便兼容调用
-        -- print("[Layer4] §2b: 刷怪死亡监听已注册（实际处理在 Layer4Play2 中）")
-    end)
 end
 
 --|=============================================================
@@ -495,34 +461,6 @@ function Layer4.hasUnitKey(uHandle)
     return false, nil
 end
 
-function Layer4.tryDropKeyAt(x, y)
-    -- 委托给 Layer4Play2 处理
-    if Layer4Play2 and Layer4Play2.tryDropKeyAt then
-        Layer4Play2.tryDropKeyAt(x, y)
-    end
-end
-
-function Layer4.onPlay2DoorOpen(heroHandle, itemHandle)
-    -- 委托给 Layer4Play2 处理
-    if Layer4Play2 and Layer4Play2.onPlay2DoorOpen then
-        Layer4Play2.onPlay2DoorOpen(heroHandle, itemHandle)
-    end
-end
-
-function Layer4.createPlay2KeyDoor()
-    -- 委托给 Layer4Play2 处理
-    if Layer4Play2 and Layer4Play2.createPlay2KeyDoor then
-        Layer4Play2.createPlay2KeyDoor()
-    end
-end
-
-function Layer4.destroyPlay2KeyDoor()
-    -- 委托给 Layer4Play2 处理
-    if Layer4Play2 and Layer4Play2.destroyPlay2KeyDoor then
-        Layer4Play2.destroyPlay2KeyDoor()
-    end
-end
-
 local function onKeyPickup(ev)
     local it = ev.item
     if not it then return end
@@ -539,7 +477,9 @@ end
 
 function Layer4.ensurePlay2KeyListeners()
     if Layer4.play2KeyPickupEvent then return end
-    Layer4.createPlay2KeyDoor()
+    if Layer4Play2 and Layer4Play2.createPlay2KeyDoor then
+        Layer4Play2.createPlay2KeyDoor()
+    end
     local keyId = c2i(Layer4Play2.play2KeyConfig.itemId)
     if not keyId or keyId == 0 then return end
     Layer4.play2KeyPickupEvent = Event:new(nil, EVENT_PLAYER_UNIT_PICKUP_ITEM, onKeyPickup)
@@ -550,7 +490,9 @@ function Layer4.destroyPlay2KeyListeners()
         pcall(function() Layer4.play2KeyPickupEvent:destroy() end)
         Layer4.play2KeyPickupEvent = nil
     end
-    Layer4.destroyPlay2KeyDoor()
+    if Layer4Play2 and Layer4Play2.destroyPlay2KeyDoor then
+        Layer4Play2.destroyPlay2KeyDoor()
+    end
 end
 
 --|=============================================================
