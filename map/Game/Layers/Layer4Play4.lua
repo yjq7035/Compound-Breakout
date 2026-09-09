@@ -91,18 +91,6 @@ Layer4Play4.enteredPlayers = {}      -- 已记录进入的玩家
 -- §2: 刷怪点管理函数
 -- ============================================================
 
--- 越界回绕：将索引修正到 [1, #spawnPoints] 范围内（越界则回到 1）
-function Layer4Play4.ensureIndex(idx)
-    if idx > #Layer4Play4.spawnPoints then idx = 1 end
-    return idx
-end
-
--- 获取当前激活的刷怪点坐标
-function Layer4Play4.getCurrentSpawnPos()
-    if not Layer4Play4.initialized then return nil end
-    return Layer4Play4.spawnPoints[Layer4Play4.ensureIndex(Layer4Play4.activeSpawnIndex)]
-end
-
 -- 切换到下一个刷怪点
 function Layer4Play4.nextSpawnPoint()
     if not Layer4Play4.initialized then return end
@@ -110,20 +98,15 @@ function Layer4Play4.nextSpawnPoint()
     if Layer4Play4.activeSpawnIndex > #Layer4Play4.spawnPoints then
         Layer4Play4.activeSpawnIndex = 1
     end
-    print(string.format("[4_4] 切换到刷怪点 %d: %.1f,%.1f", 
-        Layer4Play4.activeSpawnIndex, 
-        Layer4Play4.spawnPoints[Layer4Play4.activeSpawnIndex].x, 
-        Layer4Play4.spawnPoints[Layer4Play4.activeSpawnIndex].y))
+    -- print(string.format("[4_4] 切换到刷怪点 %d: %.1f,%.1f", 
+    --     Layer4Play4.activeSpawnIndex, 
+    --     Layer4Play4.spawnPoints[Layer4Play4.activeSpawnIndex].x, 
+    --     Layer4Play4.spawnPoints[Layer4Play4.activeSpawnIndex].y))
 end
 
 -- 标记刷怪点为已使用
 function Layer4Play4.markSpawnPointUsed(pointId)
     Layer4Play4.usedSpawnPoints[pointId] = true
-end
-
--- 检查刷怪点是否已使用
-function Layer4Play4.isSpawnPointUsed(pointId)
-    return Layer4Play4.usedSpawnPoints[pointId] or false
 end
 
 -- 获取下一个可用的刷怪点
@@ -138,7 +121,9 @@ function Layer4Play4.getNextAvailableSpawnPoint()
     end
     
     -- 所有刷怪点都已使用，按顺序循环
-    return Layer4Play4.spawnPoints[Layer4Play4.ensureIndex(Layer4Play4.activeSpawnIndex)]
+    local idx = Layer4Play4.activeSpawnIndex
+    if idx > #Layer4Play4.spawnPoints then idx = 1 end
+    return Layer4Play4.spawnPoints[idx]
 end
 
 -- 统一消息发送（优先走 SystemMessage 彩色消息，否则降级到玩家广播）
@@ -266,22 +251,6 @@ function Layer4Play4.batchSpawnAtAllPoints()
     end
 end
 
--- 获取当前刷怪点数量
-function Layer4Play4.getSpawnPointCount()
-    return #Layer4Play4.spawnPoints
-end
-
--- 获取已激活的刷怪点数量
-function Layer4Play4.getActiveSpawnPointCount()
-    local count = 0
-    for _, point in ipairs(Layer4Play4.spawnPoints) do
-        if Layer4Play4.usedSpawnPoints[point.id] then
-            count = count + 1
-        end
-    end
-    return count
-end
-
 -- 销毁所有刷怪单位
 function Layer4Play4.destroyAllMobs()
     if #Layer4Play4.mobHandles == 0 then return end
@@ -357,6 +326,9 @@ function Layer4Play4.activateOnStart()
 
     -- 在所有刷怪点批量创建怪物（这不是 Boss 战内容）
     Layer4Play4.batchSpawnAtAllPoints()
+
+    -- 初始化 Boss 战斗系统（包含死亡监听）
+    Layer4Play4.initBossSystem()
 
     Layer4Play4.send("玩法 4 已激活！怪物已刷新，前往 Boss 区域触发 Boss 战！", SystemMessage and SystemMessage.COLOR_WARN, 5.0)
     print("[4_4] 玩法 4 已激活（玩法3通关）")
@@ -935,16 +907,6 @@ function Layer4Play4.cleanup()
         Layer4Play4.destroyExitRegion()
     end
     print("[4_4] 玩法 4 清理完成")
-end
-
--- 获取刷怪点配置（供外部调用）
-function Layer4Play4.getSpawnPointConfig()
-    return Layer4Play4.spawnPoints
-end
-
--- 获取当前激活刷怪点
-function Layer4Play4.getActiveSpawnConfig()
-    return Layer4Play4.getCurrentSpawnPos()
 end
 
 return Layer4Play4
