@@ -31,7 +31,13 @@ function Play1.createBoss()
     if not u or not u._handle then print("[Layer4Play1] Unit creation failed") return end
 
     -- 设置属性：魔法抗性 = 护甲值
-    u.state.magicAmp = Play1.config.magic;u.state.resMag = u:getState(UNIT_STATE_DEFEND_WHITE)
+    u.state.magicAmp = Play1.config.magic
+    u.state.resMag = u:getState(UNIT_STATE_DEFEND_WHITE)
+    -- 添加穿透属性
+    if not u.state.defendPierce then u.state.defendPierce = 0 end
+    u.state.defendPierce = u.state.defendPierce + 50  -- +50 护甲穿透
+    if not u.state.resPierce then u.state.resPierce = 0 end
+    u.state.resPierce = u.state.resPierce + 50  -- +50 魔法穿透
 
     Play1.unit = u
 end

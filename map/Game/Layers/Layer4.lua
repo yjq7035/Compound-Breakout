@@ -267,7 +267,7 @@ Layer4.registeredMobIds = {
 }
 
 --|=============================================================
---[§2d: 玩法 4 BOSS 配置（nPo0）]
+--[§2d: 玩法 4 BOSS 配置（nPo0 - boss1）]
 --|=============================================================
 Layer4.play4Config = {
     pos     = { x = -8524.9, y = 3300.0 },
@@ -277,6 +277,9 @@ Layer4.play4Config = {
     hp      = 7500,     -- 高生命
     magic   = 0,        -- 无魔法强化
     maxMana = 0,
+    -- 穿透属性：物理 75 / 魔法 25
+    defendPierce = 75,  -- 物理穿透
+    resPierce    = 25,  -- 魔法穿透
 }
 Layer4.play4Unit      = nil
 
@@ -313,6 +316,16 @@ function Layer4.createPlay4Boss()
     end
     if cfg.maxMana and cfg.maxMana > 0 then
         u:addState(UNIT_STATE_MANA, cfg.maxMana)
+    end
+
+    -- 应用穿透属性配置
+    if cfg.defendPierce and cfg.defendPierce > 0 then
+        if not u.state.penPhys then u.state.penPhys = 0 end
+        u.state.penPhys = u.state.penPhys + cfg.defendPierce
+    end
+    if cfg.resPierce and cfg.resPierce > 0 then
+        if not u.state.penMag then u.state.penMag = 0 end
+        u.state.penMag = u.state.penMag + cfg.resPierce
     end
 
     Layer4.play4Unit = u

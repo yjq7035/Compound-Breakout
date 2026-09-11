@@ -58,7 +58,7 @@ Layer4Play4.initialized = false
 -- §0b: 玩法 4 Boss 战斗配置
 -- ============================================================
 Layer4Play4.bossConfig = {
-    unitId    = "na6m",      -- Boss 单位类型（最终Boss）
+    unitId    = "na6m",      -- Boss 单位类型（最终 Boss）
     pos       = { x = -10672.8, y = 2042.7 },  -- Boss 初始坐标（区域中心）
     facing    = 270,
     hp        = 50000,       -- Boss 生命值
@@ -69,6 +69,9 @@ Layer4Play4.bossConfig = {
     atkStr    = 350,         -- Boss 攻击强化
     magAmp    = 1500,        -- Boss 魔法强化
     lifeRegen = 5,           -- Boss 生命恢复
+    -- 穿透属性：物理 25 / 魔法 50
+    defendPierce = 25,  -- 物理穿透
+    resPierce    = 50,  -- 魔法穿透
     finished  = false        -- 玩法 4 是否通关
 }
 
@@ -98,10 +101,6 @@ function Layer4Play4.nextSpawnPoint()
     if Layer4Play4.activeSpawnIndex > #Layer4Play4.spawnPoints then
         Layer4Play4.activeSpawnIndex = 1
     end
-    -- print(string.format("[4_4] 切换到刷怪点 %d: %.1f,%.1f", 
-    --     Layer4Play4.activeSpawnIndex, 
-    --     Layer4Play4.spawnPoints[Layer4Play4.activeSpawnIndex].x, 
-    --     Layer4Play4.spawnPoints[Layer4Play4.activeSpawnIndex].y))
 end
 
 -- 标记刷怪点为已使用
@@ -365,12 +364,23 @@ function Layer4Play4.createBoss()
     u.state.magicAmp  = (u.state.magicAmp  or 0) + cfg.magAmp
     u.state.lifeRegen = (u.state.lifeRegen or 0) + cfg.lifeRegen
 
+    -- 应用穿透属性配置
+    if cfg.defendPierce and cfg.defendPierce > 0 then
+        if not u.state.penPhys then u.state.penPhys = 0 end
+        u.state.penPhys = u.state.penPhys + cfg.defendPierce
+    end
+    if cfg.resPierce and cfg.resPierce > 0 then
+        if not u.state.penMag then u.state.penMag = 0 end
+        u.state.penMag = u.state.penMag + cfg.resPierce
+    end
+
     Layer4Play4.bossUnit = u
-    print(string.format("[4_4] ✓ Boss 创建：type=%s hp=%d mana=%d armor=%d resMag=%d atk=%d atkStr=%d magAmp=%d regen=%d",
+    print(string.format("[4_4] ✓ Boss 创建：type=%s hp=%d mana=%d armor=%d resMag=%d atk=%d atkStr=%d magAmp=%d regen=%d defendPierce=%d resPierce=%d",
                         u:getTypeCode(), u:getState(UNIT_STATE_LIFE), u:getState(UNIT_STATE_MANA),
                         u:getState(UNIT_STATE_DEFEND_WHITE), u.state.resMag or 0,
                         u:getState(UNIT_STATE_ATTACK_WHITE), u.state.attackStr,
-                        u.state.magicAmp, u.state.lifeRegen or 0))
+                        u.state.magicAmp, u.state.lifeRegen or 0,
+                        u.state.defendPierce or 0, u.state.resPierce or 0))
 end
 
 -- 销毁 Boss
