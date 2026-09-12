@@ -111,9 +111,6 @@ function Layer4Play2.createPlay2Wall1()
     if h then
         Layer4Play2.play2WallHandle = h
         -- 注意：wallMap 在 Layer4 中管理，这里不添加
-        if SystemMessage and SystemMessage.send then
-            SystemMessage.send({{"STR", "所有玩家已进入刷怪区，竖墙 1 已升起！", SystemMessage.COLOR_WARN}}, 3.0)
-        end
         -- 启动刷怪计时器
         Layer4Play2.startMobSpawnerTimer()
     end
@@ -691,9 +688,6 @@ function Layer4Play2.tryDropKeyAt(x, y)
         end
         return
     end
-    if SystemMessage and SystemMessage.send then
-        SystemMessage.send({{"STR", "钥匙已掉落！拾取后前往横墙 2 开门通关！", SystemMessage.COLOR_WARN}}, 3.0)
-    end
 end
 
 function Layer4Play2.onPlay2DoorOpen(heroHandle, itemHandle)
@@ -825,9 +819,6 @@ local function onKeyPickup(ev)
     local owner = Player.fromHandle(cj.GetOwningPlayer(hero))
     local pname = owner and owner:getName() or "未知"
     if not pname or pname == "" then pname = string.format("玩家%d", owner and owner:getId() or 0) end
-    if SystemMessage and SystemMessage.send then
-        SystemMessage.send({{"STR", string.format("%s 获得了钥匙！前往横墙 2 (-1289,3844) 开门通关！", pname), SystemMessage.COLOR_SUCCESS}}, 5.0)
-    end
 end
 
 function Layer4Play2.ensurePlay2KeyListeners()

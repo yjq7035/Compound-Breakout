@@ -158,9 +158,6 @@ function Layer3.removeWallByIndex(index, reason)
         cj.RemoveDestructable(h)
         Layer3.wallMap[index] = nil
         for k, vh in ipairs(Layer3.handles) do if vh == h then table.remove(Layer3.handles, k) break end end
-        if SystemMessage and SystemMessage.send then
-            SystemMessage.send({{"STR", string.format("力量墙已销毁 - %s - %s", reason or wName, wName), SystemMessage.COLOR_INFO}}, 3.0)
-        end
         return true
     else
         -- 兜底枚举删除

@@ -267,11 +267,6 @@ function Layer1.removeWallNear(tx, ty, reason)
         Layer1.wallMap[bestIdx] = nil
         -- 同步从 handles 移除
         for k, vh in ipairs(Layer1.handles) do if vh == h then table.remove(Layer1.handles, k) break end end
-        -- 中央系统信息：力量墙销毁
-        if SystemMessage and SystemMessage.send then
-            local wallMsg = string.format("力量墙已销毁 - %s - %s", reason or w.name, w.name)
-            SystemMessage.send({{"STR", wallMsg, SystemMessage.COLOR_INFO}}, 3.0)
-        end
         return true
     else
         return false
@@ -917,12 +912,9 @@ local function registerLayerEvents()
             if hitCamp then
                 if hitCamp.idx == 1 then
                     Layer1.removeWallNear(Layer1.triggerWalls.camp1.tx, Layer1.triggerWalls.camp1.ty, "营地 1 摧毁")
-                    if SystemMessage and SystemMessage.send then SystemMessage.send({{"STR", "营地 1 已摧毁", SystemMessage.COLOR_SUCCESS}}, 3.0) end
                 elseif hitCamp.idx == 2 then
                     Layer1.removeWallNear(Layer1.triggerWalls.camp2.tx, Layer1.triggerWalls.camp2.ty, "营地 2 摧毁")
-                    if SystemMessage and SystemMessage.send then SystemMessage.send({{"STR", "营地 2 已摧毁", SystemMessage.COLOR_SUCCESS}}, 3.0) end
                 else
-                    if SystemMessage and SystemMessage.send then SystemMessage.send({{"STR", string.format("营地%d已摧毁", hitCamp.idx), SystemMessage.COLOR_SUCCESS}}, 3.0) end
                 end
                 -- 清理该营地残留獄卒绑定（死亡时已解绑，此处兜底）
                 hitCamp.guards = {}
@@ -967,9 +959,6 @@ local function registerLayerEvents()
         if killerBossIdx == 1 then
             Layer1.bossKilled[1] = true
             Layer1.removeWallNear(Layer1.triggerWalls.boss1.tx, Layer1.triggerWalls.boss1.ty, "1 号 Boss 击杀")
-            if SystemMessage and SystemMessage.send then
-                SystemMessage.send({{"STR", "1 号 Boss 已击杀", SystemMessage.COLOR_SUCCESS}}, 3.0)
-            end
             Layer1.activateBoss1MinionsChase()
             -- 分阶段：1 号击杀后才创建 2 号 Boss 及其仆从，避免隔墙被远程命中
             if not Layer1.bossUnits[2] or not isUnitAlive(Layer1.bossUnits[2]) then
@@ -984,9 +973,6 @@ local function registerLayerEvents()
         elseif killerBossIdx == 2 then
             Layer1.bossKilled[2] = true
             Layer1.removeWallNear(Layer1.triggerWalls.boss2.tx, Layer1.triggerWalls.boss2.ty, "2 号 Boss 击杀")
-            if SystemMessage and SystemMessage.send then
-                SystemMessage.send({{"STR", "2 号 Boss 已击杀", SystemMessage.COLOR_SUCCESS}}, 3.0)
-            end
             Layer1.clearBoss2Minions()
             -- 分阶段：2 号击杀后才创建 3 号 Boss 及其仆从
             if not Layer1.bossUnits[3] or not isUnitAlive(Layer1.bossUnits[3]) then
@@ -1001,9 +987,6 @@ local function registerLayerEvents()
         elseif killerBossIdx == 3 then
             Layer1.bossKilled[3] = true
             Layer1.removeWallNear(Layer1.triggerWalls.boss3.tx, Layer1.triggerWalls.boss3.ty, "3 号 Boss 击杀")
-            if SystemMessage and SystemMessage.send then
-                SystemMessage.send({{"STR", "3 号 Boss 已击杀", SystemMessage.COLOR_SUCCESS}}, 3.0)
-            end
             Layer1.clearBoss3Minions()
             -- 创建通关区域
             Layer1.createExitRegion()

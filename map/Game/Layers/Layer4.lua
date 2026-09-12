@@ -245,11 +245,6 @@ function Layer4.ensureDeathListener()
         pcall(function() cj.RemoveDestructable(h) end)
         for i, handle in ipairs(Layer4.handles) do if handle == h then table.remove(Layer4.handles, i) break end end
         Layer4.wallMap[1] = nil
-        if SystemMessage and SystemMessage.send then
-            SystemMessage.send({{"STR", "玩法 1 通关！横墙 1 已摧毁！", SystemMessage.COLOR_SUCCESS}}, 5.0)
-        else
-            Player.sendAll("玩法 1 通关！横墙 1 已摧毁")
-        end
         -- 不销毁监听器，保持存活（已在函数开头检查已存在则返回）
         -- 如果需要在热重载时清理，调用 Layer4.destroyDeathListeners()
     end)
@@ -357,11 +352,6 @@ function Layer4.start()
     -- 初始化 mobSpawnRectsA（从 Layer3 复制，避免 nil 错误）
     if Layer3 and Layer3.mobSpawnRects then
         Layer4.mobSpawnRectsA = Layer3.mobSpawnRects
-    end
-    if SystemMessage and SystemMessage.send then
-        SystemMessage.send({{"STR", "关卡 4 已启动", SystemMessage.COLOR_SUCCESS}}, 3.0)
-    else
-        Player.sendAll("关卡 4 已启动")
     end
     Layer4.createWalls()
     -- 激活玩法 1（默认玩法）
@@ -483,9 +473,6 @@ local function onKeyPickup(ev)
     local owner = Player.fromHandle(cj.GetOwningPlayer(hero))
     local pname = owner and owner:getName() or "未知"
     if not pname or pname == "" then pname = string.format("玩家%d", owner and owner:getId() or 0) end
-    if SystemMessage and SystemMessage.send then
-        SystemMessage.send({{"STR", string.format("%s 获得了钥匙！前往横墙 2 (-1289,3844) 开门通关！", pname), SystemMessage.COLOR_SUCCESS}}, 5.0)
-    end
 end
 
 function Layer4.ensurePlay2KeyListeners()

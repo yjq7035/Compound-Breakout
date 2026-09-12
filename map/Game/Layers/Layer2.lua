@@ -471,17 +471,8 @@ function Layer2.removeWallByIndex(index, reason)
                         -- 检查 handle 是否有效
                     end
                 end
-                if SystemMessage and SystemMessage.send then
-                    local wallMsg = string.format("力量墙已销毁 - %s - %s", reason or wName, wName)
-                    SystemMessage.send({{"STR", wallMsg, SystemMessage.COLOR_INFO}}, 3.0)
-                end
                 return true
             end
-        end
-        -- 兜底失败：输出诊断日志
-        if SystemMessage and SystemMessage.send then
-            local wallMsg = string.format("力量墙删除失败 - %s - %s (wallMap[index]=%s, found=0)", reason or wName, wName, tostring(Layer2.wallMap[index]))
-            SystemMessage.send({{"STR", wallMsg, SystemMessage.COLOR_WARN}}, 3.0)
         end
         return false
     end

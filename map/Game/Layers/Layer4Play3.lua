@@ -230,12 +230,6 @@ function Layer4Play3.initPlay3BossDeathListener()
             Layer4.destroyVerticalWallForPlay3()
         end
         
-        if SystemMessage and SystemMessage.send then
-            SystemMessage.send({{"STR", "隐藏BOSS 已击杀，玩法 3 通关！竖墙已销毁！", SystemMessage.COLOR_SUCCESS}}, 5.0)
-        else
-            Player.sendAll("隐藏BOSS 已击杀，玩法 3 通关！竖墙已销毁！")
-        end
-        
         -- 玩法 3 通关：激活玩法 4
         if Layer4Play4 and Layer4Play4.activateOnStart then
             Layer4Play4.activateOnStart()
